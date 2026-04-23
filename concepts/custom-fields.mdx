@@ -1,0 +1,220 @@
+---
+title: "Custom fields and field groups"
+description: "Attach typed metadata to any CMS object using custom field groups. Covers all field types, group scopes, and how to read field values from theme templates."
+---
+
+Custom fields let you attach typed, structured metadata to any content object in Camaleon CMS — posts, categories, post tags, users, widgets, themes, plugins, nav menus, and entire sites. Unlike adding columns to the database, custom fields are stored as key/value pairs and require no migrations. They are organized into **field groups**: a group collects related fields under a label and is assigned to a specific scope (for example, "all posts in the Blog post type" or "all categories in the Portfolio post type").
+
+## Custom fields vs. custom post types
+
+Use custom fields when you need to store additional data on content that already exists — for example, a "subtitle" or "hero image" on a blog post. Use a new post type when you need a fundamentally different content structure with its own URL pattern, category taxonomy, and editorial workflow.
+
+## Field group concept
+
+A `CustomFieldGroup` is a container for one or more `CustomField` definitions. When you create a group, you assign it a **scope** (`object_class` + `objectid`) that determines which objects show those fields in the admin editor.
+
+| `object_class` | Scope |
+|---|---|
+| `PostType_Post` | All posts within a given post type |
+| `PostType_Category` | All categories within a given post type |
+| `PostType_PostTag` | All tags within a given post type |
+| `Post` | A single specific post |
+| `Site` | Site-wide settings fields |
+| `Theme` | Fields for a specific theme |
+| `Widget::Main` | Fields for a specific widget |
+| `NavMenu` | Fields for a specific navigation menu |
+
+## Creating a field group in the admin panel
+
+<Steps>
+  <Step title="Navigate to Custom Fields">
+    Go to **Settings → Custom Fields** and click **New Field Group**.
+  </Step>
+  <Step title="Name the group and set the scope">
+    Give the group a name. Use the **Assign group to** dropdown to pick the scope — for example, choose a post type to assign fields to all posts within it.
+  </Step>
+  <Step title="Add fields">
+    Click **Add Field** for each field you need. Set the label, key (slug), field type, and any type-specific options such as default value or whether the field accepts multiple values.
+  </Step>
+  <Step title="Save">
+    Click **Save**. The fields appear in the editor for every matching object immediately.
+  </Step>
+</Steps>
+
+<Note>
+  Creating or modifying custom field groups requires the `custom_fields` manager permission. Grant it to a role under **Settings → User Roles**. Without this permission, write actions in the Custom Fields controller (`CustomFieldsController`) are rejected by CanCan (`authorize! :manage, :custom_fields`).
+</Note>
+
+## Available field types
+
+<AccordionGroup>
+  <Accordion title="text_box — Single-line text">
+    A standard `<input type="text">`. Supports `required`, `multiple` (repeating values), `translate` (per-language values), and `default_value`.
+  </Accordion>
+  <Accordion title="text_area — Multi-line text">
+    A `<textarea>`. Same options as `text_box`. Useful for longer plain-text values.
+  </Accordion>
+  <Accordion title="editor — Rich text (WYSIWYG)">
+    A full rich-text editor. Supports `multiple` and `translate`. Use for HTML content stored in a field.
+  </Accordion>
+  <Accordion title="select — Dropdown">
+    A `<select>` input. Define the options list under `multiple_options` (each option has a `title`, `value`, and optional `default` flag). Supports `multiple` for multi-select.
+  </Accordion>
+  <Accordion title="radio — Radio buttons">
+    Renders a set of radio buttons. Requires `multiple_options`. Single-value only.
+  </Accordion>
+  <Accordion title="checkbox — Single checkbox">
+    A boolean toggle. Stores `"1"` when checked. Default value is `"1"`.
+  </Accordion>
+  <Accordion title="checkboxes — Multiple checkboxes">
+    Renders a group of checkboxes from a `multiple_options` list. Returns an array of selected values.
+  </Accordion>
+  <Accordion title="image — Image picker">
+    Opens the media manager and stores an image URL. Supports `dimension` (e.g. `"200x100"`) and `versions` for automatic resizing.
+  </Accordion>
+  <Accordion title="file — File picker">
+    Opens the media manager for any file type. Set `formats` to restrict accepted types (e.g. `"image,video,audio"`).
+  </Accordion>
+  <Accordion title="private_file — Private file picker">
+    Same as `file` but stores files outside the public web root.
+  </Accordion>
+  <Accordion title="audio — Audio file picker">
+    Selects an audio file from the media manager.
+  </Accordion>
+  <Accordion title="video — Video URL or file">
+    Stores a video URL or uploaded file reference.
+  </Accordion>
+  <Accordion title="date — Date or datetime picker">
+    A date picker. Set `type_date` to `"0"` for date-only or `"1"` for date + time.
+  </Accordion>
+  <Accordion title="colorpicker — Color picker">
+    A color input. Set `color_format` to `"hex"`, `"rgb"`, or `"rgba"`.
+  </Accordion>
+  <Accordion title="numeric — Number input">
+    Accepts numeric values only.
+  </Accordion>
+  <Accordion title="email — Email input">
+    Validates the value as an email address.
+  </Accordion>
+  <Accordion title="phone — Phone input">
+    Accepts phone number values.
+  </Accordion>
+  <Accordion title="url — URL input">
+    Validates the value as a URL. Supports `translate`.
+  </Accordion>
+  <Accordion title="users — User picker">
+    Lets editors select one or more users from the site.
+  </Accordion>
+  <Accordion title="posts — Post picker">
+    Lets editors select one or more posts. Filter by post type using the `post_types` option.
+  </Accordion>
+  <Accordion title="post_types — Post type picker">
+    Lets editors select one or more post types.
+  </Accordion>
+  <Accordion title="categories — Category picker">
+    Lets editors select one or more categories.
+  </Accordion>
+  <Accordion title="field_attrs — Custom HTML attributes">
+    Stores arbitrary key/value HTML attributes. Supports `translate`.
+  </Accordion>
+  <Accordion title="select_eval — Dynamic select (restricted)">
+    Evaluates a Ruby expression to generate the option list. The `command` is stored as a string and `eval`'d at render time. **Restricted — see the warning below.**
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  **`select_eval` executes arbitrary Ruby code.** Starting from version 2.9.2, creating or modifying a `select_eval` field requires explicit `select_eval` permission in addition to the `custom_fields` permission. Users with the `admin` role have this automatically. For other roles, grant it under **Settings → User Roles** or via the console:
+
+  ```ruby
+  role = site.user_roles.find_by(slug: "editor")
+  current_meta = role.get_meta("_manager_#{site.id}", {})
+  role.set_meta("_manager_#{site.id}", current_meta.merge(select_eval: 1))
+  ```
+
+  Never store user-supplied input as a `select_eval` command. Prefer `select`, `radio`, or `checkboxes` for all cases where `select_eval` is not strictly required.
+</Warning>
+
+## Reading custom field values in theme templates
+
+All models that include `CamaleonCms::CustomFieldsRead` expose the following methods. In theme templates, `@post`, `@category`, and `@post_tag` are already decorated and have access to these methods.
+
+### Get a single value
+
+```ruby
+# Returns the first value for the field, or nil
+@post.get_field_value("subtitle")
+
+# With a default fallback
+@post.get_field_value("accent_color", "#333333")
+
+# Aliases: get_field and get_field! behave identically
+@post.get_field("subtitle")
+```
+
+### Get all values for a repeating field
+
+```ruby
+# Returns an array of values
+@post.get_field_values("gallery_image")
+# => ["https://example.com/img1.jpg", "https://example.com/img2.jpg"]
+
+# Alias
+@post.get_fields("gallery_image")
+```
+
+### Get all fields as a hash
+
+```ruby
+# Returns { subtitle: "Hello", accent_color: "#ff0000" }
+@post.get_field_values_hash
+```
+
+### Get fields for repeating groups
+
+When a field group has `is_repeat: true`, each repetition is a separate group numbered from `0`. Use `get_fields_grouped` to fetch all repetitions at once:
+
+```ruby
+# Returns an array of hashes, one per group repetition
+@post.get_fields_grouped(["image", "caption"])
+# => [
+#      { "image" => ["https://..."], "caption" => ["First slide"] },
+#      { "image" => ["https://..."], "caption" => ["Second slide"] }
+#    ]
+```
+
+## Adding custom fields programmatically
+
+```ruby
+post_type = current_site.post_types.find_by(slug: "portfolio")
+
+# Add a field group scoped to all posts in this post type
+group = post_type.add_custom_field_group(
+  { name: "Portfolio Details", slug: "portfolio-details" },
+  "Post"  # kind: Post | Category | PostTag
+)
+
+# Add a text field to the group
+group.add_field(
+  { name: "Client Name", slug: "client_name" },
+  { field_key: "text_box", required: "1", translate: "1" }
+)
+
+# Add an image field
+group.add_field(
+  { name: "Hero Image", slug: "hero_image" },
+  { field_key: "image", dimension: "1200x600" }
+)
+```
+
+### Setting field values on a post
+
+```ruby
+post = current_site.posts.find_by(slug: "my-project")
+
+# Set a single value
+post.save_field_value("client_name", "Acme Corp")
+
+# Set multiple values for a repeating field
+post.save_field_value("gallery_image", "https://example.com/img1.jpg")
+post.save_field_value("gallery_image", "https://example.com/img2.jpg", 1, false)
+```

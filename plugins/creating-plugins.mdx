@@ -1,0 +1,250 @@
+---
+title: "Build a Camaleon CMS plugin"
+description: "Create a custom plugin for Camaleon CMS using the gem plugin generator. Covers config.json, hooks, admin routes, views, and distributing as a gem."
+---
+
+Camaleon CMS plugins are self-contained Ruby gems (or local folders) that hook into the CMS lifecycle through a JSON manifest. Each plugin declares which hooks it responds to, which Ruby modules it exposes, and which routes it adds. The gem plugin generator scaffolds the entire structure so you can focus on your feature rather than boilerplate.
+
+## Scaffold a new plugin
+
+Run the generator from the root of your Rails application:
+
+```bash
+rails generate camaleon_cms:gem_plugin PLUGIN_NAME
+```
+
+Replace `PLUGIN_NAME` with the snake_case key for your plugin (for example, `my_plugin`). The generator:
+
+1. Creates a full Rails engine under `apps/plugins/my_plugin/`.
+2. Renames template files to match your plugin name.
+3. Appends the local gem to your `Gemfile`.
+
+## Generated directory structure
+
+```
+apps/plugins/my_plugin/
+├── app/
+│   ├── assets/
+│   │   ├── images/plugins/my_plugin/
+│   │   ├── javascripts/plugins/my_plugin/
+│   │   └── stylesheets/plugins/my_plugin/
+│   ├── controllers/plugins/my_plugin/
+│   │   ├── admin_controller.rb     # Admin panel controller
+│   │   └── front_controller.rb     # Frontend controller
+│   ├── helpers/plugins/my_plugin/
+│   │   └── main_helper.rb          # Hook callbacks and helper methods
+│   ├── models/plugins/my_plugin/
+│   │   └── my_plugin.rb
+│   └── views/plugins/my_plugin/
+│       ├── admin/
+│       │   ├── index.html.erb
+│       │   └── settings.html.erb
+│       ├── front/
+│       │   └── index.html.erb
+│       └── layouts/
+├── config/
+│   ├── camaleon_plugin.json        # Plugin manifest
+│   ├── initializers/
+│   │   └── custom_models.rb        # Optional model extensions
+│   ├── locales/                    # i18n files
+│   ├── routes_admin.txt            # Admin route declarations
+│   └── routes_front.txt            # Frontend route declarations
+├── db/
+│   └── migrate/
+└── my_plugin.gemspec
+```
+
+## config.json (camaleon_plugin.json)
+
+The manifest file is the single source of truth for the plugin's identity, hooks, and helpers. For gem plugins the file is named `config/camaleon_plugin.json`; for folder-based plugins it is `config/config.json`.
+
+```json
+{
+  "title": "My Plugin",
+  "descr": "A short description of what this plugin does.",
+  "key": "my_plugin",
+  "helpers": [
+    "Plugins::MyPlugin::MainHelper"
+  ],
+  "hooks": {
+    "on_active":        ["my_plugin_on_active"],
+    "on_inactive":      ["my_plugin_on_inactive"],
+    "plugin_options":   ["my_plugin_on_plugin_options"]
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `key` | string | Must match the plugin folder name or gem name. Used as the unique identifier everywhere. |
+| `title` | string | Human-readable name shown in the admin panel. |
+| `descr` | string | Short description shown in the plugin list. |
+| `version` | string | Plugin version string (e.g. `"1.0"`). Used by `plugin_upgrade`. |
+| `helpers` | array | Fully-qualified Ruby module names to include as helpers. |
+| `hooks` | object | Map of hook names to arrays of method names to call. |
+| `gem_mode` | boolean | Set automatically to `true` for gem plugins. Changes asset and view path resolution. |
+
+## Defining hook callbacks
+
+Hooks are declared in `config.json` and implemented as methods in the helper module at `app/helpers/plugins/my_plugin/main_helper.rb`:
+
+```ruby
+module Plugins
+  module MyPlugin
+    module MainHelper
+      def self.included(klass)
+        # Expose helper methods to views:
+        # klass.helper_method [:my_helper] rescue ""
+      end
+
+      # Called when the plugin is activated for a site.
+      # plugin: the Plugin model instance
+      def my_plugin_on_active(plugin)
+        # Run migrations, create default records, etc.
+      end
+
+      # Called when the plugin is deactivated.
+      def my_plugin_on_inactive(plugin)
+        # Clean up site-specific data if needed.
+      end
+
+      # Adds a "Settings" link below the plugin title in the admin plugin list.
+      # args: { plugin: Hash, links: Array }
+      def my_plugin_on_plugin_options(args)
+        args[:links] << link_to('Settings', admin_plugins_my_plugin_settings_path)
+      end
+    end
+  end
+end
+```
+
+You can hook into any CMS lifecycle event by adding the hook name to `config.json` and implementing the method. Common hooks beyond the lifecycle hooks include `front_before_load`, `admin_before_load`, `on_render`, and content hooks such as `new_post`, `edit_post`, and `post_the_content`.
+
+## Adding routes
+
+Routes are declared as plain Rails route DSL fragments in text files under `config/`. The CMS wraps them in the appropriate namespace before evaluating.
+
+**Admin routes** (`config/routes_admin.txt`) are wrapped inside `scope 'admin' > namespace :plugins > namespace :my_plugin`:
+
+```
+# config/routes_admin.txt
+controller :admin do
+  get  :index
+  get  :settings
+  post :save_settings
+end
+```
+
+This generates named routes such as `admin_plugins_my_plugin_index_path` and `admin_plugins_my_plugin_settings_path`.
+
+**Frontend routes** (`config/routes_front.txt`) are wrapped inside `namespace :plugins > namespace :my_plugin`:
+
+```
+# config/routes_front.txt
+get 'index' => 'front#index'
+```
+
+This generates `plugins_my_plugin_index_path`.
+
+## View and asset helpers
+
+Use these helpers inside plugin views and controllers to resolve paths correctly in both gem mode and folder mode:
+
+```ruby
+# Render a plugin view (resolves gem vs folder path automatically).
+# view_name: path relative to app/views/plugins/my_plugin/ (gem)
+#         or app/views/plugins/my_plugin/views/        (folder)
+render plugin_view('admin/settings', 'my_plugin')
+
+# Use a plugin layout.
+render layout: plugin_layout('application', 'my_plugin')
+
+# Return the asset path for a plugin asset.
+# Gem mode:    plugins/my_plugin/admin.js
+# Folder mode: plugins/my_plugin/assets/admin.js
+plugin_asset_path('admin.js', 'my_plugin')
+
+# Return the full URL for a plugin asset.
+plugin_asset_url('css/main.css', 'my_plugin')
+```
+
+When called from inside a plugin file (helper, controller, or view), `plugin_key` can be omitted — the helpers infer the key from the caller's file path using `self_plugin_key`.
+
+## Admin controller
+
+The generated admin controller extends `CamaleonCms::Apps::PluginsAdminController`:
+
+```ruby
+module Plugins
+  module MyPlugin
+    class AdminController < CamaleonCms::Apps::PluginsAdminController
+      include Plugins::MyPlugin::MainHelper
+
+      def index; end
+
+      def settings; end
+
+      def save_settings
+        @plugin.set_options(params[:options])         if params[:options].present?
+        @plugin.set_metas(params[:metas])             if params[:metas].present?
+        @plugin.set_field_values(params[:field_options]) if params[:field_options].present?
+        redirect_to url_for(action: :settings), notice: 'Settings saved'
+      end
+    end
+  end
+end
+```
+
+The `@plugin` instance variable is the `CamaleonCms::Plugin` model for the current site, provided by the base controller.
+
+## Using anonymous hooks
+
+You can register a hook callback from an initializer without a plugin manifest, using `PluginRoutes.add_anonymous_hook`:
+
+```ruby
+# config/initializers/my_hooks.rb
+
+# Signature: add_anonymous_hook(hook_key, callback, hook_id = '')
+PluginRoutes.add_anonymous_hook(
+  'front_before_load',
+  lambda { |params| Rails.logger.info "Front page loaded: #{params.inspect}" },
+  'my_app_front_logger'
+)
+```
+
+The `hook_id` is optional but recommended — it lets you remove the hook later with `PluginRoutes.remove_anonymous_hook('front_before_load', 'my_app_front_logger')`.
+
+## Step-by-step: create a complete plugin
+
+<Steps>
+  <Step title="Generate the scaffold">
+    ```bash
+    rails generate camaleon_cms:gem_plugin my_plugin
+    ```
+    This creates `apps/plugins/my_plugin/` and adds the gem to your `Gemfile`.
+  </Step>
+
+  <Step title="Edit the manifest">
+    Open `apps/plugins/my_plugin/config/camaleon_plugin.json` and set `title`, `descr`, and any additional hooks your plugin needs.
+  </Step>
+
+  <Step title="Implement hook callbacks">
+    Open `app/helpers/plugins/my_plugin/main_helper.rb` and fill in the bodies of `my_plugin_on_active`, `my_plugin_on_inactive`, and any other hook methods you declared.
+  </Step>
+
+  <Step title="Add routes">
+    Declare admin routes in `config/routes_admin.txt` and frontend routes in `config/routes_front.txt` using plain Rails DSL.
+  </Step>
+
+  <Step title="Build your views">
+    Add ERB templates under `app/views/plugins/my_plugin/admin/` and `app/views/plugins/my_plugin/front/`. Reference assets with `plugin_asset_path` and render partials with `plugin_view`.
+  </Step>
+
+  <Step title="Install and test">
+    Restart the Rails server, then go to **Admin → Plugins** and install your plugin. The `on_active` hook fires on first install.
+  </Step>
+
+  <Step title="Distribute as a gem (optional)">
+    Update the generated `.gemspec` (the generator strips TODO placeholders and adds `camaleon_cms` as a dependency), then publish to RubyGems. Any app with the gem in its `Gemfile` will automatically discover the plugin because `PluginRoutes.get_gem_plugins` scans all installed gems for `config/camaleon_plugin.json`.
+  </Step>
+</Steps>

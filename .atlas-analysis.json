@@ -1,28 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Camaleon CMS",
+  "projectType": "framework",
+  "projectName": "Camaleon CMS",
+  "projectDescription": "A dynamic, plugin-based content management system built as a Ruby on Rails engine, offering multi-site support, custom content types, themes, and an extensible hook system.",
   "theme": "maple",
-  "colors": {
-    "primary": "#eb2827",
-    "light": "#ed7676",
-    "dark": "#243c4c"
-  },
-  "favicon": "https://media.brand.dev/55d6a525-7ba4-45c0-8fda-b94b432bb86f.png",
-  "logo": {
-    "light": "https://media.brand.dev/7ad70449-4d3c-4bf1-a12f-642b9186c9f4.png",
-    "dark": "https://media.brand.dev/7ad70449-4d3c-4bf1-a12f-642b9186c9f4.png"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/owen2345/camaleon-cms"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/owen2345/camaleon-cms"
-    }
-  },
+  "primaryColor": "#eb2827",
+  "lightColor": "#ed7676",
+  "darkColor": "#243c4c",
   "navigation": {
     "tabs": [
       {
@@ -101,5 +84,37 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Multi-site management from a single Rails installation",
+    "Custom content types and custom fields without coding",
+    "Plugin system with hooks for extending functionality",
+    "Theme system with layout and template support",
+    "Advanced user roles and permissions (CanCanCan-based)",
+    "File uploads with local and Amazon S3 support",
+    "Multi-language / i18n support for frontend and admin",
+    "Built-in SEO, sitemap, and RSS generation",
+    "Shortcodes and widgets",
+    "Easy migration from WordPress"
+  ],
+  "publicApiSurface": [
+    "rails generate camaleon_cms:install",
+    "rails generate camaleon_cms:gem_plugin",
+    "rails generate camaleon_cms:theme",
+    "rake camaleon_cms:generate_migrations",
+    "CamaleonCms::SiteHelper#current_site",
+    "CamaleonCms::SiteHelper#current_theme",
+    "CamaleonCms::HooksHelper#hooks_run",
+    "CamaleonCms::HooksHelper#hook_run",
+    "CamaleonCms::PluginsHelper#plugin_install",
+    "CamaleonCms::PluginsHelper#plugin_uninstall",
+    "CamaleonCms::UploaderHelper#upload_file",
+    "CamaleonCms::ThemeHelper#theme_view",
+    "CamaleonCms::ThemeHelper#theme_asset_path",
+    "CamaleonCms::PluginsHelper#plugin_view",
+    "CamaleonCms::PluginsHelper#plugin_asset_path",
+    "PluginRoutes.system_info",
+    "PluginRoutes.enabled_apps",
+    "config/system.json (CMS configuration)"
+  ]
 }

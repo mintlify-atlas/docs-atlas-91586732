@@ -1,0 +1,84 @@
+---
+title: "SEO, sitemaps, and meta tags"
+description: "Camaleon CMS includes built-in SEO tools: auto-generated sitemaps, configurable meta tags, robots.txt, and RSS feeds — all without extra plugins."
+---
+
+Camaleon CMS ships with several SEO features enabled by default. The `cama_meta_tag` plugin (included in `default_plugins`) provides per-page meta tag management. The CMS also generates a sitemap, a `robots.txt` response, and an RSS feed automatically from your published content — no configuration required.
+
+## Sitemap
+
+The sitemap is auto-generated at:
+
+```
+GET /sitemap
+```
+
+The route defaults to XML format, so the full URL is `/sitemap.xml`. Camaleon CMS builds the sitemap from all published posts across all post types on the current site.
+
+<Note>
+  The sitemap route uses the path `/sitemap` (without `.xml`), but because the route defaults `format: :xml`, Rails will serve it as XML whether you request `/sitemap` or `/sitemap.xml`. Link to `/sitemap.xml` in your `robots.txt` for maximum crawler compatibility.
+</Note>
+
+## robots.txt
+
+A `robots.txt` response is generated at:
+
+```
+GET /robots
+```
+
+The route defaults to `format: :txt`. The content is served by the `robots` action on `CamaleonCms::FrontendController` and can be customized through a theme partial.
+
+## RSS feed
+
+An RSS feed is available at:
+
+```
+GET /rss
+```
+
+The route defaults to `format: rss`. It returns your site's most recent published posts in RSS 2.0 format. You can link to it from your layout to enable feed auto-discovery:
+
+```html
+<link rel="alternate" type="application/rss+xml" title="My Site" href="/rss">
+```
+
+## SEO meta tags
+
+The `cama_meta_tag` plugin adds a meta tag management panel to every post's edit screen. When enabled on a post type (via `has_seo: true`, which is the default), editors can set:
+
+| Field | HTML output |
+|---|---|
+| SEO title | `<title>` and `og:title` |
+| SEO description | `<meta name="description">` and `og:description` |
+| SEO keywords | `<meta name="keywords">` |
+| Social image | `og:image` and `twitter:image` |
+
+If no per-post SEO values are set, the plugin falls back to the post's title and summary.
+
+### Social media meta tags
+
+The `cama_meta_tag` plugin generates Open Graph and Twitter Card tags automatically:
+
+```html
+<meta property="og:title" content="My Post Title" />
+<meta property="og:description" content="Post summary..." />
+<meta property="og:image" content="https://example.com/media/1/hero.jpg" />
+<meta name="twitter:card" content="summary_large_image" />
+```
+
+These tags are rendered in the `<head>` of every page using the active theme's layout.
+
+## Advanced SEO
+
+For more advanced requirements — custom sitemap entries, canonical URLs, per-language meta tags, or structured data — the community-maintained `camaleon-cms-seo` plugin extends the built-in SEO tooling. Install it as a gem and activate it per site through **Settings → Plugins**.
+
+## Enabling or disabling SEO fields per post type
+
+SEO fields are enabled by default for all post types (`has_seo: true`). To disable them for a specific post type, set `has_seo` to `false` in the post type configuration:
+
+```ruby
+site.post_types.find_by(slug: 'portfolio').update(has_seo: false)
+```
+
+When `has_seo` is `false`, the SEO panel is hidden from the post editor and no meta tags are written for that post type.

@@ -1,0 +1,160 @@
+---
+title: "Built-in plugins in Camaleon CMS"
+description: "Four plugins ship pre-installed with every Camaleon CMS site. Learn what content cache, web attack control, post visibility, and contact forms each do."
+---
+
+Camaleon CMS includes a set of plugins that are pre-installed for every new site. These plugins cover security, performance, content control, and SEO — the concerns that almost every site needs from day one.
+
+<Note>
+  Default plugins are installed automatically when a new site is created. They are not installed retroactively on existing sites when you add them to `default_plugins`.
+</Note>
+
+## The `default_plugins` option
+
+The `default_plugins` key in `config/system.json` controls which plugins are installed for each new site:
+
+```json
+{
+  "default_plugins": ["front_cache", "cama_contact_form", "attack", "cama_meta_tag"]
+}
+```
+
+To disable a default plugin, remove its key from the array and restart the server. This only affects new sites; existing sites retain their installed plugins. To deactivate a plugin on an existing site, go to **Admin → Plugins** and uninstall it, or call `plugin_uninstall("plugin_key")` in a console.
+
+---
+
+## front\_cache — Content cache
+
+The front cache plugin stores rendered HTML pages in `Rails.cache` and serves them to anonymous (not signed-in) visitors without hitting the database or rendering the view again.
+
+**What it does:**
+- Intercepts requests via `front_before_load` before the main controller action runs.
+- Serves a cached response if one exists for the current URL, replacing CSRF tokens on the fly.
+- Writes the rendered response to cache after `front_after_load`.
+- Clears the cache automatically on any `POST` or `PATCH` request (content changes).
+
+**Default cache scope** (set on install):
+
+| Setting | Default |
+|---|---|
+| Home page | Cached |
+| Post type "page" | Cached |
+| Individual posts | Configurable |
+| Specific paths | Configurable |
+| Logged-in users | Not cached |
+
+**Configuration:** Navigate to **Admin → Plugins → Front Cache → Settings** to manage which paths, post types, and individual posts are cached. A "Clean Cache" action is also available.
+
+**Hooks used:**
+
+```json
+{
+  "front_before_load": ["front_cache_front_before_load"],
+  "front_after_load":  ["front_cache_front_after_load"],
+  "on_active":         ["front_cache_on_active"],
+  "on_inactive":       ["front_cache_on_inactive"]
+}
+```
+
+**To disable:** Remove `"front_cache"` from `default_plugins`, or uninstall it per site through the admin panel.
+
+---
+
+## attack — Web attack control
+
+The web attack control plugin rate-limits requests by session to protect against brute-force and flooding attacks. It stores a log of requests in a `plugins_attacks` database table and bans sessions that exceed the configured thresholds.
+
+**What it does:**
+- Tracks every GET and POST/PATCH request per session and path.
+- Bans a session for a configurable number of minutes when its request count within a time window exceeds the threshold.
+- Clears the request log hourly.
+- Renders a plain-text ban message to banned sessions without executing the action.
+
+**Default thresholds** (set on install):
+
+| Request type | Window | Max requests | Ban duration |
+|---|---|---|---|
+| GET | 20 seconds | 10 | 5 minutes |
+| POST / PATCH | 20 seconds | 5 | 5 minutes |
+
+**Configuration:** Navigate to **Admin → Plugins → Attack → Settings** to adjust the thresholds, time windows, and ban message.
+
+**Hooks used:**
+
+```json
+{
+  "front_before_load": ["attack_app_before_load"],
+  "on_active":         ["attack_on_active"],
+  "on_inactive":       ["attack_on_inactive"]
+}
+```
+
+**To disable:** Remove `"attack"` from `default_plugins`, or uninstall it per site.
+
+---
+
+## visibility\_post — Post visibility control
+
+The post visibility plugin adds per-post access rules. Editors can restrict a post to specific audiences beyond the default public/private toggle.
+
+**What it does:**
+- Adds UI fields to the post create/edit form (`new_post`, `edit_post` hooks).
+- Enforces visibility rules when a post is requested on the frontend (`post_can_visit`, `post_the_content` hooks).
+- Supports visibility modes: **Public**, **Private** (logged-in users only), **Password**, and **Date range**.
+- Adds an extra column in the posts list view to show each post's visibility setting.
+
+**Hooks used:**
+
+```json
+{
+  "on_active":              ["plugin_visibility_on_active"],
+  "on_inactive":            ["plugin_visibility_on_inactive"],
+  "list_post":              ["plugin_visibility_post_list"],
+  "new_post":               ["plugin_visibility_new_post"],
+  "edit_post":              ["plugin_visibility_new_post"],
+  "created_post":           ["plugin_visibility_create_post"],
+  "updated_post":           ["plugin_visibility_create_post"],
+  "post_the_content":       ["plugin_visibility_post_the_content"],
+  "filter_post":            ["plugin_visibility_filter_post"],
+  "post_can_visit":         ["plugin_visibility_can_visit"],
+  "list_post_extra_columns":["plugin_visibility_extra_columns"]
+}
+```
+
+<Note>
+  `visibility_post` is a built-in folder plugin (`app/apps/plugins/visibility_post/`). It is not the same as the separate `post_visibility` gem, though both serve a similar purpose.
+</Note>
+
+**To disable:** Remove `"visibility_post"` from `default_plugins`, or uninstall it per site. Note that existing posts with non-public visibility settings will fall back to public access once the plugin is removed.
+
+---
+
+## cama\_contact\_form — Contact forms
+
+The contact form plugin is a gem plugin (`cama_contact_form`) that lets editors build and embed configurable contact forms anywhere on the site. It is listed as a default plugin in `system.json` and is also available standalone at [github.com/owen2345/cama_contact_form](https://github.com/owen2345/cama_contact_form).
+
+**What it does:**
+- Provides an admin interface to create, name, and configure contact forms.
+- Allows embedding forms in post content or templates using a shortcode/helper.
+- Sends form submissions to a configurable email address.
+- Stores submission records in the database.
+
+**Configuration:** Navigate to **Admin → Plugins → Contact Form** to create and manage forms, set recipient email addresses, and customize field layouts.
+
+**To disable:** Remove `"cama_contact_form"` from `default_plugins` and remove the gem from your `Gemfile`, or uninstall it per site.
+
+---
+
+## cama\_meta\_tag — SEO
+
+The SEO plugin is a gem plugin (`camaleon-cms-seo` / `cama_meta_tag`) that adds per-post and site-wide meta tag management. It is listed as a default plugin and is also maintained at [github.com/owen2345/camaleon-cms-seo](https://github.com/owen2345/camaleon-cms-seo).
+
+**What it does:**
+- Adds SEO fields (title, description, keywords, canonical URL) to each post's edit form.
+- Outputs appropriate `<meta>` tags in the `<head>` via hooks.
+- Supports Open Graph and Twitter Card tags for social media sharing.
+- Provides site-wide default meta tag values that individual posts can override.
+
+**Configuration:** Navigate to **Admin → Plugins → Meta Tag** to set site-wide defaults. Per-post values are edited in the post editor's SEO tab.
+
+**To disable:** Remove `"cama_meta_tag"` from `default_plugins` and remove the gem from your `Gemfile`, or uninstall it per site. Meta tags will no longer be rendered in the `<head>` after deactivation.

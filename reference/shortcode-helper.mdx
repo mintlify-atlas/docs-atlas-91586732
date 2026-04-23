@@ -1,0 +1,243 @@
+---
+title: "ShortcodeHelper API reference"
+description: "Reference for CamaleonCms::ShortCodeHelper — register shortcodes, render them with do_shortcode, and use the built-in widget and data shortcodes."
+---
+
+`CamaleonCms::ShortCodeHelper` implements WordPress-style shortcodes for Camaleon CMS. A shortcode is a bracket-wrapped tag such as `[my_shortcode key='value']` that can be embedded in any post content. When the CMS renders the post, each shortcode is replaced with the output of its registered handler.
+
+Shortcodes can be backed by a view partial or an inline lambda. They support attributes and, optionally, wrapped content via closing tags (`[tag]…[/tag]`).
+
+## Built-in shortcodes
+
+The following shortcodes are registered automatically on initialisation:
+
+| Key | Description |
+|-----|-------------|
+| `widget` | Renders a widget by its key. See **Appearance → Widgets** in the admin. |
+| `load_libraries` | Loads frontend JS libraries on demand. Usage: `[load_libraries data='datepicker,tinymce']`. |
+| `asset` | Generates an asset URL or `<img>` tag. Usage: `[asset file='themes/my/img/logo.png' image='true']`. |
+| `data` | Fetches and renders attributes or custom field values from any CMS model. See examples below. |
+
+## Methods
+
+### `shortcode_add`
+
+```ruby
+shortcode_add(key, template = nil, descr = '')
+```
+
+Registers a new shortcode.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `key` | `String` | The shortcode tag name used in content, e.g. `"my_map"`. |
+| `template` | `String \| Lambda \| nil` | How to render the shortcode. Pass a view template path string (e.g. `"shortcode_templates/my_map"`), a `lambda { \|attrs, args\| … }`, or `nil` to auto-resolve `shortcode_templates/<key>`. |
+| `descr` | `String` | Human-readable description shown in the admin shortcode browser. |
+
+**Lambda signature**
+
+```ruby
+lambda { |attrs, args|
+  # attrs: Hash of parsed attributes from the shortcode tag
+  # args:  Hash with keys: :owner (model), :shortcode (raw tag text),
+  #                        :shortcode_content (content between open/close tags), :code
+  "returned HTML string"
+}
+```
+
+**Examples**
+
+```ruby
+# View-backed shortcode
+shortcode_add('youtube', 'shortcode_templates/youtube', 'Embed a YouTube video')
+
+# Lambda shortcode
+shortcode_add('greeting', lambda { |attrs, args|
+  name = attrs['name'] || 'World'
+  "<strong>Hello, #{name}!</strong>"
+}, 'Render a greeting')
+
+# Auto-resolved template (looks for shortcode_templates/my_widget.html.erb)
+shortcode_add('my_widget')
+```
+
+Content in template:
+
+```erb
+<%# shortcode_templates/youtube.html.erb %>
+<iframe src="https://youtube.com/embed/<%= attributes['id'] %>" …></iframe>
+```
+
+In a post body:
+
+```
+[youtube id='dQw4w9WgXcQ']
+[greeting name='Alice']
+```
+
+---
+
+### `shortcode_change_template`
+
+```ruby
+shortcode_change_template(key, template = nil)
+```
+
+Updates the handler (template path or lambda) for an already-registered shortcode without changing its description. Useful for overriding a built-in shortcode from a theme or plugin.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `key` | `String` | The shortcode key to update. |
+| `template` | `String \| Lambda \| nil` | New handler. Same semantics as in `shortcode_add`. |
+
+**Example**
+
+```ruby
+# Replace the built-in widget shortcode with a custom renderer
+shortcode_change_template('widget', lambda { |attrs, args|
+  render_my_custom_widget(attrs['widget_key'])
+})
+```
+
+---
+
+### `shortcode_delete`
+
+```ruby
+shortcode_delete(key)
+```
+
+Removes a shortcode from the registry so it is no longer recognised during rendering.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `key` | `String` | The shortcode key to remove. |
+
+**Example**
+
+```ruby
+shortcode_delete('widget')
+```
+
+---
+
+### `do_shortcode`
+
+```ruby
+do_shortcode(content, args = {}) → String
+```
+
+Scans `content` for all registered shortcode tags and replaces each with its rendered output.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `content` | `String` | HTML/text string that may contain shortcode tags. |
+| `args` | `Hash \| Object` | Context passed to each shortcode handler. If not a `Hash`, it is wrapped as `{ owner: args }`. Typically pass the current post model so handlers can avoid extra DB queries. |
+
+**Returns** `String` — the input string with all recognised shortcode tags replaced.
+
+**Examples**
+
+```ruby
+# Basic usage inside a view helper
+processed = do_shortcode(@post.the_content, @post)
+
+# Custom context hash
+processed = do_shortcode(raw_text, { owner: @post, locale: current_locale })
+
+# Closed shortcode — content between tags is available as args[:shortcode_content]
+# Input:  [callout type='warning']This is important[/callout]
+# In lambda: args[:shortcode_content] => "This is important"
+```
+
+---
+
+### `cama_strip_shortcodes`
+
+```ruby
+cama_strip_shortcodes(text) → String
+```
+
+Removes all registered shortcode tags from `text` without rendering them. Useful for generating plain-text excerpts or meta descriptions.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `text` | `String` | Input string that may contain shortcodes. |
+
+**Returns** `String` — the input string with shortcode tags stripped.
+
+**Example**
+
+```ruby
+excerpt = cama_strip_shortcodes(@post.the_content)
+```
+
+---
+
+### `render_shortcode`
+
+```ruby
+render_shortcode(text, key, template = nil) → String
+```
+
+Renders only the shortcodes with the given `key` in `text`, optionally using a one-off template or lambda. All other shortcodes are left untouched.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `text` | `String` | Input string. |
+| `key` | `String` | The shortcode key to match and render. |
+| `template` | `String \| Lambda \| nil` | Override the registered handler for this one call. |
+
+**Returns** `String` — `text` with all `[key …]` tags replaced.
+
+**Example**
+
+```ruby
+# Render only [map …] shortcodes, overriding the registered template
+output = render_shortcode(content, 'map', lambda { |attrs, _args|
+  "<div class='map' data-lat='#{attrs['lat']}' data-lng='#{attrs['lng']}'></div>"
+})
+```
+
+---
+
+## Built-in `[data]` shortcode reference
+
+The `data` shortcode retrieves attributes or custom field values from any CMS object.
+
+**Attributes**
+
+| Attribute | Description |
+|-----------|-------------|
+| `object` | Model type: `post` (default), `posttype`, `category`, `posttag`, `site`, `user`, `theme`, `navmenu`. |
+| `id` | Integer ID of the target record. |
+| `key` | Slug of the target record. |
+| `attr` | Model attribute to return: `title`, `url`, `link`, `thumb`, `excerpt`, `created_at`, `updated_at`, `content` (posts only), `author_name`, `author_url` (posts only). |
+| `field` | Custom field key to return. |
+| `render_field` | Set to `'true'` to render the custom field as an HTML element. |
+| `index` | 1-based index when the custom field stores multiple values. |
+
+**Examples**
+
+```
+[data id='122' attr='title']
+[data key='contact' attr='url']
+[data key='contact' attr='link']
+[data object='site' attr='url']
+[data key='page' object='posttype' attr='url']
+[data field='icon' index='2']
+[data key='contact' field='sub_title']
+[data object='site' field='sub_title']
+```

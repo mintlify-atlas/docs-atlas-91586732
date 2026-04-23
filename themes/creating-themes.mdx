@@ -1,0 +1,307 @@
+---
+title: "Create a custom Camaleon CMS theme"
+description: "Build a theme for Camaleon CMS from scratch using the theme generator. Covers directory layout, layouts, templates, and accessing content through theme helpers."
+---
+
+Creating a custom theme lets you control every aspect of your site's frontend while retaining full access to Camaleon CMS content, navigation, and user helpers. The CMS ships with a Rails generator that scaffolds the required directory structure and wires up the helper module automatically.
+
+## Generate a theme
+
+Run the generator from your Rails application root, replacing `my_theme` with your theme's name:
+
+```bash
+rails generate camaleon_cms:theme my_theme
+```
+
+The generator converts the name to `snake_case`, creates the folder at `app/apps/themes/my_theme/`, and prints its location:
+
+```
+Theme successfully created in: /path/to/app/apps/themes/my_theme
+```
+
+To remove a generated theme:
+
+```bash
+rails destroy camaleon_cms:theme my_theme
+```
+
+## Generated directory structure
+
+```
+app/apps/themes/my_theme/
+├── config/
+│   ├── config.json            # Theme metadata and hook declarations
+│   └── locales/               # i18n YAML files
+├── assets/
+│   ├── css/                   # Stylesheets
+│   ├── js/                    # JavaScript
+│   └── images/                # Static images
+├── views/
+│   ├── layouts/
+│   │   └── index.html.erb     # Default layout
+│   ├── partials/              # Shared ERB partials
+│   ├── admin/
+│   │   └── settings.html.erb  # Admin settings tab (optional)
+│   └── index.html.erb         # Home page template
+└── main_helper.rb             # Hook callbacks and helper methods
+```
+
+## Step-by-step: building a theme
+
+<Steps>
+  <Step title="Generate the scaffold">
+    Run the generator as shown above. This creates all required files and directories.
+  </Step>
+
+  <Step title="Edit config.json">
+    Open `config/config.json` and fill in the theme metadata. The generator pre-populates the name and class name from your theme argument.
+
+    ```json
+    {
+      "name": "My Theme",
+      "description": "A custom Camaleon CMS theme.",
+      "thumb": "images/image.png",
+      "helpers": [
+        "Themes::MyTheme::MainHelper"
+      ],
+      "hooks": {
+        "on_active":          ["my_theme_on_install_theme"],
+        "on_inactive":        ["my_theme_on_uninstall_theme"],
+        "on_theme_settings":  ["my_theme_settings"]
+      }
+    }
+    ```
+
+    | Key | Purpose |
+    |---|---|
+    | `name` | Display name shown in Appearances |
+    | `description` | Short description shown in the theme store |
+    | `thumb` | Path to a preview image (relative to `assets/`) |
+    | `helpers` | Ruby modules to include in the controller context |
+    | `hooks` | Map of CMS hook events to callback method names in your helper |
+  </Step>
+
+  <Step title="Create the main layout">
+    Edit `views/layouts/index.html.erb`. This file wraps every frontend page. Use `yield` where the page content should appear and `the_head` to inject CMS-managed assets and meta tags.
+
+    ```erb
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <title><%= current_site.the_title %></title>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+      <%= stylesheet_link_tag theme_asset_path("css/main") %>
+      <%= javascript_include_tag theme_asset_path("js/main.js") %>
+      <%= raw the_head %>
+    </head>
+    <body>
+      <header>
+        <a href="<%= current_site.the_url %>">
+          <%= image_tag current_site.the_logo, alt: current_site.the_title %>
+        </a>
+        <%= raw get_nav_menu("main_menu", "nav") %>
+      </header>
+
+      <main>
+        <%= yield %>
+      </main>
+
+      <footer>
+        <%= raw current_site.draw_languages("language-list", true) %>
+      </footer>
+    </body>
+    </html>
+    ```
+
+    <Note>
+      `the_head` outputs CSRF tags, SEO meta tags, and any CSS/JS assets registered by plugins via `cama_draw_custom_assets`. Always include it inside `<head>`.
+    </Note>
+  </Step>
+
+  <Step title="Add page templates">
+    The CMS resolves templates in priority order. Create ERB files directly inside `views/` to handle different content types.
+
+    **`views/index.html.erb`** — home page:
+
+    ```erb
+    <h1>Welcome to <%= current_site.the_title %></h1>
+    ```
+
+    **`views/page.html.erb`** — individual pages:
+
+    ```erb
+    <article>
+      <h1><%= @post.the_title %></h1>
+      <div><%= raw @post.the_content %></div>
+    </article>
+    ```
+
+    **`views/post.html.erb`** — blog posts:
+
+    ```erb
+    <article>
+      <h1><%= @post.the_title %></h1>
+      <p><time><%= @post.created_at.strftime("%B %-d, %Y") %></time></p>
+      <%= image_tag @post.the_thumb_url if @post.the_thumb_url.present? %>
+      <div><%= raw @post.the_content %></div>
+    </article>
+    ```
+
+    **`views/category.html.erb`** — category listing:
+
+    ```erb
+    <h1><%= @category.the_title %></h1>
+    <% @posts.each do |post| %>
+      <% post = post.decorate %>
+      <a href="<%= post.the_url %>"><%= post.the_title %></a>
+    <% end %>
+    ```
+
+    **`views/search.html.erb`** — search results:
+
+    ```erb
+    <% @posts.each do |post| %>
+      <% post = post.decorate %>
+      <a href="<%= post.the_url %>"><%= post.the_title %></a>
+    <% end %>
+    ```
+  </Step>
+
+  <Step title="Add per-post templates (optional)">
+    A template file named `template_*.html.erb` appears in the template selector when an editor creates or edits a post. For example, `views/template_full_width.html.erb` appears in the dropdown as "full_width".
+
+    ```erb
+    <%# views/template_full_width.html.erb %>
+    <div class="full-width-wrapper">
+      <h1><%= @post.the_title %></h1>
+      <div><%= raw @post.the_content %></div>
+    </div>
+    ```
+  </Step>
+
+  <Step title="Place theme assets">
+    Add stylesheets to `assets/css/`, JavaScript to `assets/js/`, and images to `assets/images/`. Reference them with `theme_asset_path`:
+
+    ```erb
+    <%= stylesheet_link_tag theme_asset_path("css/main") %>
+    <%= javascript_include_tag theme_asset_path("js/main.js") %>
+    <%= image_tag theme_asset_path("images/logo.png") %>
+    ```
+  </Step>
+
+  <Step title="Implement hook callbacks">
+    Open `main_helper.rb`. The generator pre-populates stub callbacks for `on_active` and `on_inactive`. Use `on_active` to create custom fields or store initial option values.
+
+    ```ruby
+    module Themes
+      module MyTheme
+        module MainHelper
+          def self.included(klass)
+            # Expose helper methods to views if needed:
+            # klass.helper_method [:my_theme_helper]
+          end
+
+          # Called when the theme is activated
+          def my_theme_on_install_theme(theme)
+            unless theme.get_field_groups.where(slug: "my_theme_fields").any?
+              group = theme.add_field_group(
+                name: "Theme Settings",
+                slug: "my_theme_fields",
+                description: ""
+              )
+              group.add_field(
+                { "name" => "Accent color", "slug" => "accent_color" },
+                { field_key: "colorpicker" }
+              )
+            end
+          end
+
+          # Called when the theme is deactivated
+          def my_theme_on_uninstall_theme(theme); end
+
+          # Called when admin saves the theme settings form
+          def my_theme_settings(theme); end
+        end
+      end
+    end
+    ```
+  </Step>
+
+  <Step title="Activate the theme">
+    In the admin panel, navigate to **Appearances** and click your theme's name to activate it. Alternatively, activate it in code:
+
+    ```ruby
+    site_install_theme("my_theme")
+    ```
+  </Step>
+</Steps>
+
+## Additional views
+
+The CMS looks for these view files in your theme's `views/` directory. Create only the ones you need; the CMS falls back gracefully when a file is missing.
+
+| File | When it is rendered |
+|---|---|
+| `index.html.erb` | Home page |
+| `page.html.erb` | A post of type `page` |
+| `post.html.erb` | A post of type `post` |
+| `category.html.erb` | Category listing page |
+| `post_type.html.erb` | Post type archive page |
+| `post_tag.html.erb` | Tag listing page |
+| `search.html.erb` | Search results |
+| `template_*.html.erb` | Per-post selectable templates |
+| `layouts/*.html.erb` | Named layouts (selectable per post type) |
+| `partials/_*.html.erb` | Shared ERB partials |
+| `admin/settings.html.erb` | Custom tab in **Settings → Site Settings → Theme** |
+
+## Multiple layouts
+
+You can define more than one layout. Add additional `*.html.erb` files inside `views/layouts/`. The post type editor lets administrators choose a default layout for all posts of that type, and (if `has_layout` is enabled) individual posts can override it.
+
+```erb
+<%# views/layouts/blog.html.erb %>
+<!DOCTYPE html>
+<html>
+<head>
+  <%= raw the_head %>
+</head>
+<body class="blog-layout">
+  <aside><%= raw get_nav_menu("sidebar_menu", "sidebar-nav") %></aside>
+  <main><%= yield %></main>
+</body>
+</html>
+```
+
+Reference this layout from a controller or hook:
+
+```ruby
+# In a hook callback
+def my_theme_render_post(args)
+  args[:layout] = theme_layout("blog") if args[:post].the_post_type.slug == "blog"
+end
+```
+
+## Gem-mode themes
+
+A gem-mode theme is distributed as a standard Ruby gem with a `camaleon_theme.json` file at the gem root instead of `config/config.json`. The directory layout is the same, but assets and views are resolved without the extra `assets/` and `views/` nesting that directory-mode themes use.
+
+```
+my_theme_gem/
+├── camaleon_theme.json      # Replaces config/config.json
+├── app/
+│   └── assets/
+│       └── themes/
+│           └── my_theme/   # Assets go here (no extra assets/ prefix)
+└── app/
+    └── views/
+        └── themes/
+            └── my_theme/   # Views go here (no extra views/ prefix)
+```
+
+<Note>
+  When `gem_mode` is `true`, `theme_asset_path` returns `themes/my_theme/css/main` instead of `themes/my_theme/assets/css/main`, and `theme_view` returns `themes/my_theme/index` instead of `themes/my_theme/views/index`. The helpers read the `gem_mode` flag from the theme's settings hash and resolve paths accordingly.
+</Note>
+
+To distribute a theme as a gem, add `camaleon_theme.json` to the gem root and make sure the assets and views follow the gem-mode layout. Users install it by adding the gem to their `Gemfile`.

@@ -1,0 +1,242 @@
+---
+title: "SiteHelper API reference"
+description: "Complete reference for CamaleonCms::SiteHelper — methods for resolving the current site, managing themes, and handling multi-site request context."
+---
+
+`CamaleonCms::SiteHelper` is included in controllers and helpers throughout the engine. It is the primary interface for resolving which site owns the current request, reading and switching themes, and performing site setup tasks such as installation and theme management.
+
+## Methods
+
+### `current_site`
+
+```ruby
+current_site(site = nil) → CamaleonCms::SiteDecorator | nil
+```
+
+Returns the decorated site model for the current request. When called with a `site` argument it assigns that site as the current site for the duration of the request.
+
+**Resolution order (no argument):**
+
+1. Global `$current_site` if defined (useful in Rake tasks and console sessions).
+2. `@current_site` instance variable if already set on the controller.
+3. Single-site installations — returns `CamaleonCms::Site.first`.
+4. Multi-site installations — matches the request host/subdomain against the `slug` column.
+5. Fires the `cama_current_site_helper` hook to allow overriding via a plugin.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `site` | `CamaleonCms::Site` (optional) | When provided, decorates and stores this site as the current site. |
+
+**Returns** A `CamaleonCms::SiteDecorator` instance, or `nil` if no matching site is found.
+
+<Warning>
+If no site can be resolved, a red error is written to `Rails.logger`. The app will not raise — callers receive `nil` and should handle it gracefully.
+</Warning>
+
+**Examples**
+
+```ruby
+# Read the current site
+site = current_site
+site.name # => "My Site"
+
+# Override the current site (e.g., in a Rake task)
+current_site(CamaleonCms::Site.find(2))
+```
+
+---
+
+### `current_theme`
+
+```ruby
+current_theme → CamaleonCms::ThemeDecorator
+```
+
+Returns the decorated theme model for the current site. The result is memoized per request in `@_current_theme`.
+
+**Returns** A `CamaleonCms::ThemeDecorator` instance.
+
+**Example**
+
+```ruby
+theme = current_theme
+theme.slug  # => "my_custom_theme"
+theme.settings['path']  # => "/var/app/app/apps/themes/my_custom_theme"
+```
+
+---
+
+### `cama_get_list_template_files`
+
+```ruby
+cama_get_list_template_files(post_type) → Array<String>
+```
+
+Scans the current theme's `views/` directory and returns a list of template file base-names whose names start with `template_`. Plugins can modify the list via the `post_get_list_templates` hook.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `post_type` | `CamaleonCms::PostType` | The post type being queried. Passed to the hook so plugins can filter or extend the list. |
+
+**Returns** `Array<String>` — e.g. `["template_full_width", "template_landing"]`.
+
+**Example**
+
+```ruby
+templates = cama_get_list_template_files(@post_type)
+# => ["template_full_width", "template_sidebar"]
+```
+
+---
+
+### `cama_get_list_layouts_files`
+
+```ruby
+cama_get_list_layouts_files(post_type) → Array<String>
+```
+
+Scans `views/layouts/` inside the current theme and returns base-names of layout files, excluding partials (files starting with `_`). Plugins can modify the list via the `post_get_list_layouts` hook.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `post_type` | `CamaleonCms::PostType` | The post type being queried. |
+
+**Returns** `Array<String>` — e.g. `["index", "blog", "page"]`.
+
+**Example**
+
+```ruby
+layouts = cama_get_list_layouts_files(@post_type)
+# => ["index", "blog"]
+```
+
+---
+
+### `current_locale`
+
+```ruby
+current_locale → String
+```
+
+Returns the current I18n locale as a string.
+
+**Returns** `String` — e.g. `"en"`, `"es"`, `"pt-BR"`.
+
+**Example**
+
+```ruby
+current_locale  # => "en"
+```
+
+---
+
+### `site_after_install`
+
+```ruby
+site_after_install(site, theme_key = nil)
+```
+
+Runs all post-installation tasks for a newly created site: auto-installs default plugins (as listed in `system.json`) and activates the site theme. Temporarily switches `current_site` to the given site during setup, then restores the previous current site.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `site` | `CamaleonCms::Site` | The newly created site model. |
+| `theme_key` | `String` (optional) | Slug of the theme to install. Defaults to the site's currently stored theme slug. |
+
+**Example**
+
+```ruby
+# Called internally during site creation
+site_after_install(@new_site, 'camaleon_cms_default_theme')
+```
+
+---
+
+### `site_install_theme`
+
+```ruby
+site_install_theme(key)
+```
+
+Installs a theme for the current site. Deactivates the previously active theme, activates the new theme record, fires the theme's `on_active` hook, and reloads plugin routes.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `key` | `String` | The theme slug (directory name / gem name). |
+
+**Example**
+
+```ruby
+site_install_theme('my_business_theme')
+```
+
+---
+
+### `site_uninstall_theme`
+
+```ruby
+site_uninstall_theme
+```
+
+Uninstalls the currently active theme from the current site by firing the theme's `on_inactive` hook. Does not destroy the theme database record.
+
+**Example**
+
+```ruby
+site_uninstall_theme
+```
+
+---
+
+### `cama_current_site_host_port`
+
+```ruby
+cama_current_site_host_port(args) → Hash
+```
+
+Injects `:host` and `:port` keys into `args` using the current site's domain, **only when the request is a test request or originates from a console/task context** (i.e. when `cama_is_test_request?` returns `true`). This ensures URL helpers work correctly outside of a browser request.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `args` | `Hash` | A hash of URL options to be extended. |
+
+**Returns** The same `args` hash, potentially with `:host` and `:port` added.
+
+**Example**
+
+```ruby
+url_options = cama_current_site_host_port({})
+# In a test context => { host: "example.com", port: "3000" }
+# In a real request => {}
+```
+
+---
+
+### `cama_is_test_request?`
+
+```ruby
+cama_is_test_request? → Boolean
+```
+
+Returns `true` if the current request is an `ActionController::TestRequest` or if `request` is not defined (e.g. in a Rake task or Rails console). Used by `cama_current_site_host_port` to decide whether to inject host/port into URL options.
+
+**Returns** `Boolean`.
+
+**Example**
+
+```ruby
+cama_is_test_request?  # => false (in a real HTTP request)
+cama_is_test_request?  # => true (in a test or Rake task)
+```

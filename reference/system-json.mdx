@@ -1,0 +1,144 @@
+---
+title: "system.json configuration reference"
+description: "Every key in config/system.json explained — admin path, database prefix, available languages, default plugins, migration settings, and more for Camaleon CMS."
+---
+
+`config/system.json` is the primary static configuration file for Camaleon CMS. Changes to this file require a server restart to take effect.
+
+## How `system_info` merges settings
+
+`PluginRoutes.system_info` (aliased as `static_system_info`) reads two files and merges them:
+
+1. **Engine defaults** — `<gem_dir>/config/system.json`
+2. **Application overrides** — `Rails.root/config/system.json`
+
+The application file wins on any key that appears in both. This means you only need to include the keys you want to override in your app's `config/system.json`.
+
+```ruby
+# lib/plugin_routes.rb
+gem_settings = File.join($camaleon_engine_dir, 'config', 'system.json')
+app_settings = Rails.root.join('config', 'system.json')
+
+settings = settings.merge(JSON.parse(File.read(gem_settings))) if File.exist?(gem_settings)
+settings = settings.merge(JSON.parse(File.read(app_settings))) if File.exist?(app_settings)
+```
+
+The result is cached for the lifetime of the process. Call `PluginRoutes.reload` (or restart the server) to pick up changes.
+
+<Note>
+`system.json` uses a relaxed JSON format that allows `//` line comments. Standard JSON parsers may reject this file — the engine uses a comment-stripping parser internally.
+</Note>
+
+## Default configuration
+
+```json
+{
+  "default_template": "default",
+  "hooks": {},
+  "skip_format_url": true,
+  "default_plugins": ["front_cache", "cama_contact_form", "attack", "cama_meta_tag"],
+  "available_languages": ["ar", "es", "en", "fr", "de", "it", "pt-BR", "nl", "zh-CN", "ru", "uk"],
+  "admin_available_languages": ["ar", "en", "es", "it", "de", "pt-BR", "nl", "fr", "zh-CN", "ru", "uk"],
+  "default_user_role": "client",
+  "users_share_sites": true,
+  "db_prefix": "",
+  "relative_url_root": "",
+  "admin_path_name": "admin",
+  "user_model": "",
+  "media_slug_folder": false,
+  "auto_include_migrations": true,
+  "default_layout": "index"
+}
+```
+
+## Key reference
+
+<ParamField body="default_template" type="string" default="default">
+  The default template name assigned to new sites. Must match a directory name inside `app/apps/themes/`.
+</ParamField>
+
+<ParamField body="hooks" type="object" default="{}">
+  System-level hook declarations. Keys are hook event names; values are arrays of method names to call. This is the same format used by plugin `config.json` files. Use this to attach hooks from the engine itself without a plugin.
+
+  ```json
+  {
+    "hooks": {
+      "front_before_load": ["my_before_hook_method"]
+    }
+  }
+  ```
+</ParamField>
+
+<ParamField body="skip_format_url" type="boolean" default="true">
+  When `true`, URLs are served without a `.html` extension. Set to `false` to append `.html` to all frontend URLs.
+</ParamField>
+
+<ParamField body="default_plugins" type="array" default='["front_cache","cama_contact_form","attack","cama_meta_tag"]'>
+  List of plugin keys that are automatically installed for every newly created site. Each entry must be a valid plugin key present in `app/apps/plugins/` or registered as a gem plugin.
+</ParamField>
+
+<ParamField body="available_languages" type="array" default='["ar","es","en","fr","de","it","pt-BR","nl","zh-CN","ru","uk"]'>
+  Languages available for the **frontend** language switcher. Values are Rails i18n locale codes. The full list of supported locale codes is available at the [rails-i18n repository](https://github.com/svenfuchs/rails-i18n).
+</ParamField>
+
+<ParamField body="admin_available_languages" type="array" default='["ar","en","es","it","de","pt-BR","nl","fr","zh-CN","ru","uk"]'>
+  Languages available in the **admin panel** language selector. Uses the same locale code format as `available_languages`.
+</ParamField>
+
+<ParamField body="default_user_role" type="string" default="client">
+  The role slug automatically assigned to new user registrations. Must match a role defined in the site's user roles. Common values: `"client"`, `"editor"`, `"admin"`.
+</ParamField>
+
+<ParamField body="users_share_sites" type="boolean" default="true">
+  - `true` — a single user account can belong to multiple sites. The user table is shared across all sites.
+  - `false` — each user is scoped to exactly one site.
+</ParamField>
+
+<ParamField body="db_prefix" type="string" default='""'>
+  Optional prefix prepended to all Camaleon database table names. Set this before running migrations if you need to avoid table name collisions with an existing schema.
+
+  <Warning>
+  Changing this value after migrations have run requires renaming tables manually.
+  </Warning>
+</ParamField>
+
+<ParamField body="relative_url_root" type="string" default='""'>
+  URL prefix for all Camaleon routes. Set to `"blog"` to mount the CMS at `http://localhost:3000/blog/` instead of the root. Leave empty to mount at `/`.
+</ParamField>
+
+<ParamField body="admin_path_name" type="string" default="admin">
+  URL segment for the admin panel. Change to obscure the admin URL, e.g. set to `"control"` to access the panel at `/control/` instead of `/admin/`.
+</ParamField>
+
+<ParamField body="user_model" type="string" default='""'>
+  Fully-qualified class name of a custom user model. Leave empty to use the built-in `CamaleonCms::User`. Set to a Devise model class name (e.g. `"User"`) to integrate with an existing authentication system.
+</ParamField>
+
+<ParamField body="media_slug_folder" type="boolean" default="false">
+  - `false` — uploaded media is stored in a folder named after the site's integer ID (e.g. `public/media/1/`).
+  - `true` — the site's slug is used as the folder name (e.g. `public/media/my-site/`).
+</ParamField>
+
+<ParamField body="auto_include_migrations" type="boolean" default="true">
+  - `true` — Camaleon automatically includes its migrations and those of installed plugins when you run `rake db:migrate`.
+  - `false` — You must generate and manage migration files manually: `rake camaleon_cms:generate_migrations`.
+</ParamField>
+
+<ParamField body="default_layout" type="string" default="index">
+  The default layout file name used by the frontend controller. Must exist as `app/views/layouts/<name>.html.erb` (or equivalent) in the active theme. The `front_default_layout` hook can override this per request.
+</ParamField>
+
+## Example: minimal application override
+
+Create `config/system.json` in your Rails app with only the keys you want to change:
+
+```json
+{
+  "admin_path_name": "dashboard",
+  "default_user_role": "editor",
+  "available_languages": ["en", "es", "fr"],
+  "default_plugins": ["front_cache", "cama_contact_form", "cama_meta_tag"]
+}
+```
+
+All other keys fall back to the engine defaults.

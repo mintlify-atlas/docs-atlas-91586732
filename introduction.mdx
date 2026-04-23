@@ -1,0 +1,87 @@
+---
+title: "Camaleon CMS: Rails CMS for custom content"
+description: "Camaleon CMS is a Rails engine CMS. Build multi-site, multi-language sites with custom content types, a hook-based plugin system, and flexible theme support."
+---
+
+Camaleon CMS is a free, open-source content management system built as a Ruby on Rails engine — a flexible alternative to WordPress designed specifically for Rails developers. It lets you define custom content types and custom fields without writing any code, manage multiple sites from a single installation, and extend everything through themes and plugins.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Install Camaleon CMS into your Rails app and get your first site running in minutes.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Configure system settings, admin path, database prefix, and more via system.json.
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/content-types">
+    Understand content types, custom fields, multi-site architecture, and the hook system.
+  </Card>
+  <Card title="Plugin Development" icon="puzzle-piece" href="/plugins/creating-plugins">
+    Build custom plugins to extend Camaleon CMS with new features and admin panels.
+  </Card>
+  <Card title="Theme Development" icon="palette" href="/themes/creating-themes">
+    Create custom themes with layouts, templates, and full access to CMS helpers.
+  </Card>
+  <Card title="Helper API Reference" icon="code" href="/reference/site-helper">
+    Browse the full Ruby helper API for sites, content, uploads, shortcodes, and more.
+  </Card>
+</CardGroup>
+
+## What you can build
+
+Camaleon CMS adapts to your project structure rather than forcing you to adapt to the CMS. Whether you need a blog, a company site, an e-commerce store, or a multi-tenant SaaS platform, Camaleon gives you the building blocks.
+
+<CardGroup cols={2}>
+  <Card title="Multi-site platforms" icon="globe">
+    Run multiple independent sites from one Rails installation, each with its own domain, theme, plugins, and users.
+  </Card>
+  <Card title="Custom content architectures" icon="layer-group">
+    Define post types with any combination of custom fields — text, images, galleries, selects, relations, and more.
+  </Card>
+  <Card title="Multilingual sites" icon="language">
+    Built-in i18n support for frontend and admin panels across 11+ languages including Arabic, Chinese, and Russian.
+  </Card>
+  <Card title="Extensible with plugins" icon="plug">
+    Install community plugins for SEO, contact forms, e-commerce, OAuth, subscriptions, and more.
+  </Card>
+</CardGroup>
+
+## Key features
+
+- **Custom content types** — Create structured content without code using post types, categories, and tags
+- **Custom fields** — Text, textarea, image, gallery, checkbox, radio, select, date, and more
+- **Plugin system** — Hook-based architecture lets plugins modify any part of the CMS lifecycle
+- **Theme system** — Full layout and template control with helper methods for assets and views
+- **User roles** — Granular permissions with CanCanCan, supporting admin, editor, and custom roles
+- **Media manager** — Upload files locally or to Amazon S3, with automatic image thumbnailing
+- **SEO tools** — Sitemap generation, meta tags, robots.txt, and RSS feeds built in
+- **Shortcodes and widgets** — Reusable content blocks and sidebar components
+- **WordPress migration** — Import content from an existing WordPress installation
+
+## Requirements
+
+| Requirement | Version |
+|-------------|---------|
+| Ruby | 3.0+ |
+| Ruby on Rails | 6.1+ |
+| Database | PostgreSQL, MySQL 5+, or SQLite |
+| ImageMagick | Any current version |
+
+<Note>
+  Camaleon CMS is distributed as a Ruby gem and integrates into any existing or new Rails application as a Rails Engine.
+</Note>
+
+## Get started
+
+<Steps>
+  <Step title="Add the gem">
+    Add `gem "camaleon_cms"` to your Rails application's Gemfile.
+  </Step>
+  <Step title="Run the installer">
+    Run `rails generate camaleon_cms:install` and `rake camaleon_cms:generate_migrations && rake db:migrate`.
+  </Step>
+  <Step title="Start your server">
+    Run `rails server` and visit `http://localhost:3000` to complete setup.
+  </Step>
+</Steps>
+
+See the [Quick Start guide](/quickstart) for the full step-by-step installation walkthrough.

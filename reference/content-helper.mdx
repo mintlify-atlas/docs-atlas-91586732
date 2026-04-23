@@ -1,0 +1,118 @@
+---
+title: "ContentHelper API reference"
+description: "Reference for CamaleonCms::ContentHelper — use cama_content_prepend and cama_content_append to inject HTML into page layouts from plugins or helpers."
+---
+
+`CamaleonCms::ContentHelper` provides a simple buffer mechanism for injecting arbitrary HTML into the page body from anywhere in the request lifecycle — controllers, helpers, or plugins. Content registered with `cama_content_prepend` appears immediately after the opening `<body>` tag; content registered with `cama_content_append` appears just before `</body>`.
+
+This pattern is how plugins add JavaScript snippets, tracking pixels, or inline styles without modifying the theme layout directly.
+
+## Typical layout usage
+
+```erb
+<body>
+  <%= raw cama_content_before_draw %>
+
+  <%= yield %>
+
+  <%= raw cama_content_after_draw %>
+</body>
+```
+
+## Methods
+
+### `cama_content_init`
+
+```ruby
+cama_content_init
+```
+
+Initializes the before/after content buffers. This is called automatically at the start of each request by the CMS base controller. You do not normally need to call this directly unless you are writing a test or resetting state manually.
+
+**Side effects** Sets `@_before_content` and `@_after_content` to empty arrays.
+
+---
+
+### `cama_content_prepend`
+
+```ruby
+cama_content_prepend(content)
+```
+
+Adds an HTML string to the **before-body** buffer. Each call appends to the list; all registered strings are output together by `cama_content_before_draw`.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `content` | `String` | Raw HTML to insert after `<body>`. |
+
+**Example**
+
+```ruby
+# In a plugin helper or controller
+cama_content_prepend('<div id="site-notice">Site is under maintenance</div>')
+```
+
+---
+
+### `cama_content_append`
+
+```ruby
+cama_content_append(content)
+```
+
+Adds an HTML string to the **after-body** buffer. Each call appends to the list; all registered strings are output together by `cama_content_after_draw`.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `content` | `String` | Raw HTML to insert before `</body>`. |
+
+**Example**
+
+```ruby
+# Load a tracking script from a plugin
+cama_content_append('<script src="/assets/plugins/analytics/tracker.js"></script>')
+```
+
+---
+
+### `cama_content_before_draw`
+
+```ruby
+cama_content_before_draw → String
+```
+
+Concatenates and returns all strings registered via `cama_content_prepend`. Call this once in your layout, immediately after `<body>`.
+
+**Returns** A single `String` containing all prepended HTML fragments joined without separators. Returns `""` if nothing has been registered or if an error occurs.
+
+**Example**
+
+```erb
+<body>
+  <%= raw cama_content_before_draw %>
+  ...
+```
+
+---
+
+### `cama_content_after_draw`
+
+```ruby
+cama_content_after_draw → String
+```
+
+Concatenates and returns all strings registered via `cama_content_append`. Call this once in your layout, just before `</body>`.
+
+**Returns** A single `String` containing all appended HTML fragments joined without separators. Returns `""` if nothing has been registered or if an error occurs.
+
+**Example**
+
+```erb
+  ...
+  <%= raw cama_content_after_draw %>
+</body>
+```

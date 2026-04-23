@@ -1,0 +1,151 @@
+---
+title: "Configure Camaleon CMS via system.json"
+description: "A complete reference for every option in config/system.json — from admin path and database prefix to available languages and auto-migration settings."
+---
+
+After running `rails generate camaleon_cms:install`, a `config/system.json` file is placed in your Rails application root. Camaleon CMS reads this file at boot time and merges it with the gem's own defaults, so values you set here always take precedence. **Restart your server after any change to this file** — edits are not picked up at runtime.
+
+<Warning>
+  `config/system.json` uses `//` line comments, which are not valid standard JSON. Rails' JSON parser accepts them, but generic JSON validators and linters will flag them as errors. Remove all comments before passing the file to a strict JSON parser.
+</Warning>
+
+## Default system.json
+
+The file copied into your app by the installer contains a minimal set of keys. The gem itself supplies defaults for all other options:
+
+```json
+{
+  "share_sessions": true,
+  "default_user_role": "client",
+  "users_share_sites": true,
+  "db_prefix": "cama_",
+  "relative_url_root": "",
+  "auto_include_migrations": false,
+  "hooks": {}
+}
+```
+
+The gem-level defaults (found in the gem's own `config/system.json`) add the remaining options such as `available_languages`, `default_plugins`, and `admin_path_name`. Your app-level file is merged on top, so you only need to include keys you want to override.
+
+## Configuration reference
+
+<ParamField body="default_template" type="string" default="default">
+  The theme slug used as the default template for newly created sites. Must match the directory name of a theme installed under `app/apps/themes/`.
+</ParamField>
+
+<ParamField body="hooks" type="object" default="{}">
+  System-level hooks registered at boot time. This object is merged with hooks registered by plugins and themes. In most applications this remains an empty object — hooks are usually added programmatically via `PluginRoutes.add_anonymous_hook`.
+</ParamField>
+
+<ParamField body="skip_format_url" type="boolean" default="true">
+  When `true`, the `.html` extension is omitted from generated URLs. Set to `false` to include `.html` in all frontend URLs.
+</ParamField>
+
+<ParamField body="default_plugins" type="string[]" default='["front_cache", "cama_contact_form", "attack", "cama_meta_tag"]'>
+  An array of plugin slugs that are automatically installed and activated for every new site created in the CMS. These plugins must be present in `app/apps/plugins/` or registered as gems.
+
+  The four built-in defaults are:
+
+  | Plugin slug | Purpose |
+  |---|---|
+  | `front_cache` | Page-level content caching |
+  | `cama_contact_form` | Contact form builder |
+  | `attack` | Web attack / rate-limit protection |
+  | `cama_meta_tag` | SEO meta tags and sitemap |
+</ParamField>
+
+<ParamField body="available_languages" type="string[]" default='["ar","es","en","fr","de","it","pt-BR","nl","zh-CN","ru","uk"]'>
+  Languages available for the site's **frontend** panel. Values must be valid Rails i18n locale codes. See the [rails-i18n repository](https://github.com/svenfuchs/rails-i18n) for the full list of supported locales.
+</ParamField>
+
+<ParamField body="admin_available_languages" type="string[]" default='["ar","en","es","it","de","pt-BR","nl","fr","zh-CN","ru","uk"]'>
+  Languages available for the **admin** panel. Subset or superset of `available_languages` as needed. Administrators can switch the admin UI to any language in this list from their profile settings.
+</ParamField>
+
+<ParamField body="default_user_role" type="string" default="client">
+  The role automatically assigned to every new user who registers. Common values are `"client"` (read-only frontend access) and `"editor"`. See [Users and roles](/admin/users-and-roles) for the full role hierarchy.
+</ParamField>
+
+<ParamField body="users_share_sites" type="boolean" default="true">
+  When `true`, a single user account can access all sites in the installation. When `false`, each user is bound to the site they registered on.
+
+  **This value should be decided before the first migration.** Changing it after installation may require a data migration.
+</ParamField>
+
+<ParamField body="share_sessions" type="boolean" default="true">
+  When `true` and `users_share_sites` is also `true`, user sessions are shared across subdomains of the base domain. Useful for multi-site setups where sites share a root domain.
+</ParamField>
+
+<ParamField body="db_prefix" type="string" default="cama_">
+  A prefix prepended to every Camaleon CMS database table name. For example, with `"db_prefix": "cama_"` the sites table becomes `cama_sites`.
+
+  **Set this before running migrations.** Changing it afterwards requires renaming all existing tables manually.
+</ParamField>
+
+<ParamField body="relative_url_root" type="string" default='""'>
+  A URL path segment prepended to all CMS routes. For example, setting `"relative_url_root": "blog"` makes the site available at `http://localhost:3000/blog/` instead of `http://localhost:3000/`.
+
+  Leave empty (`""`) to serve from the root.
+</ParamField>
+
+<ParamField body="admin_path_name" type="string" default="admin">
+  The URL segment used for the admin panel. With the default value, the admin panel is at `/admin`. Change this to a non-obvious path to reduce automated scanning of the admin login page.
+
+  <Tip>
+    Changing `admin_path_name` to a hard-to-guess value (for example `"admin_path_name": "cms-9f3a"`) reduces exposure to automated login-page scanners. This is a security-through-obscurity measure and is not a substitute for strong passwords and proper authentication.
+  </Tip>
+</ParamField>
+
+<ParamField body="user_model" type="string" default='""'>
+  The fully qualified Ruby class name of a custom user model. Leave empty to use the built-in `CamaleonCms::User` model. Set this to integrate an existing Devise or custom authentication model, for example `"user_model": "User"`.
+</ParamField>
+
+<ParamField body="media_slug_folder" type="boolean" default="false">
+  When `true`, uploaded media files are stored in a folder named after the site's slug (e.g. `uploads/my-site/`) rather than the numeric site ID (e.g. `uploads/1/`). Useful for making storage paths human-readable. Has no effect on existing uploads.
+</ParamField>
+
+<ParamField body="auto_include_migrations" type="boolean" default="false">
+  When `true`, Camaleon CMS automatically includes its own migrations and those of installed plugins into the migration load path — no need to run `rake camaleon_cms:generate_migrations` manually.
+
+  When `false` (the default in the installer template), you control when migrations are copied by running:
+
+  ```bash
+  rake camaleon_cms:generate_migrations
+  rake db:migrate
+  ```
+
+  Setting this to `true` is convenient during development but can make it harder to inspect or customise individual migration files before they run.
+</ParamField>
+
+<ParamField body="default_layout" type="string" default="index">
+  The layout file name used by default for Camaleon CMS frontend views. This corresponds to a layout file in the active theme (e.g. `app/apps/themes/default/views/layouts/index.html.erb`).
+</ParamField>
+
+## Full example
+
+The following example shows every supported key together for reference:
+
+```json
+{
+  "default_template": "default",
+  "hooks": {},
+  "skip_format_url": true,
+  "default_plugins": ["front_cache", "cama_contact_form", "attack", "cama_meta_tag"],
+  "available_languages": ["ar", "es", "en", "fr", "de", "it", "pt-BR", "nl", "zh-CN", "ru", "uk"],
+  "admin_available_languages": ["ar", "en", "es", "it", "de", "pt-BR", "nl", "fr", "zh-CN", "ru", "uk"],
+  "default_user_role": "client",
+  "users_share_sites": true,
+  "share_sessions": true,
+  "db_prefix": "cama_",
+  "relative_url_root": "",
+  "admin_path_name": "admin",
+  "user_model": "",
+  "media_slug_folder": false,
+  "auto_include_migrations": false,
+  "default_layout": "index"
+}
+```
+
+<Note>
+  Remember to restart your Rails server after saving any change to `config/system.json`. The file is parsed once at boot and cached for the lifetime of the process.
+</Note>

@@ -1,0 +1,193 @@
+---
+title: "Hooks reference"
+description: "Complete list of Camaleon CMS hook events — plugin lifecycle, frontend rendering, content, and admin hooks — with the parameters passed to each."
+---
+
+The Camaleon CMS hook system lets plugins and themes listen to and respond to events throughout the CMS lifecycle. Hooks are declared in a plugin's `config.json` and implemented as methods in a helper module. You can also register anonymous hooks at runtime using `PluginRoutes.add_anonymous_hook`.
+
+## Hook API
+
+### `hooks_run(hook_key, params = nil)`
+
+Executes all registered callbacks for the given hook across every enabled plugin and theme, plus any anonymous hooks.
+
+```ruby
+hooks_run('create_post', { post: @post })
+```
+
+### `hook_run(plugin, hook_key, params = nil)`
+
+Runs hooks for a single plugin only. Useful when you have a specific plugin config object.
+
+```ruby
+hook_run(plugin_config, 'on_active', plugin_model)
+```
+
+### `hook_skip(hook_function_name)`
+
+Skips a specific hook callback function by name during the current request.
+
+```ruby
+hook_skip('my_plugin_before_upload')
+```
+
+## Anonymous hooks
+
+Register a hook at runtime without a plugin config.json:
+
+```ruby
+# In config/initializers/my_hooks.rb
+PluginRoutes.add_anonymous_hook('create_post') do |args|
+  Rails.logger.info "Post created: #{args[:post].title}"
+end
+```
+
+Remove an anonymous hook:
+
+```ruby
+PluginRoutes.remove_anonymous_hook('create_post', my_proc)
+```
+
+## Declaring hooks in config.json
+
+In your plugin's `config.json`, map hook event names to method names:
+
+```json config.json
+{
+  "key": "my_plugin",
+  "hooks": {
+    "create_post": ["my_plugin_on_create_post"],
+    "on_active":   ["my_plugin_on_active"],
+    "before_upload": ["my_plugin_filter_upload"]
+  },
+  "helpers": ["MyPlugin::MainHelper"]
+}
+```
+
+The method must exist in one of the plugin's declared helper modules:
+
+```ruby app/apps/plugins/my_plugin/helpers/main_helper.rb
+module MyPlugin
+  module MainHelper
+    def my_plugin_on_create_post(args)
+      post = args[:post]
+      # do something with the post
+    end
+  end
+end
+```
+
+## Hook event reference
+
+### Plugin lifecycle hooks
+
+These fire when plugins are installed, uninstalled, or upgraded. `hook_run` is used (single-plugin scope).
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `on_active` | Plugin or theme activated | Plugin/theme model |
+| `on_inactive` | Plugin or theme deactivated | Plugin/theme model |
+| `on_upgrade` | Plugin version upgraded | Plugin model |
+
+### Plugin management hooks (hooks_run)
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `plugin_after_install` | Any plugin installed | `{ plugin: plugin_model }` |
+| `plugin_after_uninstall` | Any plugin uninstalled | `{ plugin: plugin_model }` |
+| `plugin_after_upgrade` | Any plugin upgraded | `{ plugin: plugin_model }` |
+| `plugin_after_destroy` | Plugin destroyed (deprecated) | `{ plugin: plugin_key }` |
+| `plugin_KEY_after_install` | Specific plugin installed | `{ plugin: plugin_model }` |
+| `plugin_KEY_after_uninstall` | Specific plugin uninstalled | `{ plugin: plugin_model }` |
+| `plugin_KEY_after_upgrade` | Specific plugin upgraded | `{ plugin: plugin_model }` |
+| `plugin_KEY_after_destroy` | Specific plugin destroyed | `{ plugin: plugin_key }` |
+
+Replace `KEY` with the plugin's `key` value from config.json.
+
+### Request lifecycle hooks
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `app_before_load` | Before any app request (admin or front) | `nil` |
+| `app_after_load` | After any app request | `nil` |
+| `admin_before_load` | Before admin panel request | `nil` |
+| `admin_after_load` | After admin panel request | `nil` |
+| `front_before_load` | Before frontend request | `nil` |
+| `front_after_load` | After frontend request | `nil` |
+
+### Frontend rendering hooks
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `on_render_index` | Rendering home/index page | `{ site: site }` |
+| `on_render_post` | Rendering a single post | `{ post: post }` |
+| `on_render_post_type` | Rendering post type listing | `{ post_type: pt }` |
+| `on_render_category` | Rendering category listing | `{ category: cat }` |
+| `on_render_post_tag` | Rendering tag listing | `{ post_tag: tag }` |
+| `on_render_search` | Rendering search results | `{ search: term }` |
+| `on_render_profile` | Rendering user profile | `{ user: user }` |
+| `on_render_sitemap` | Rendering sitemap.xml | `{ site: site }` |
+| `on_render_robots` | Rendering robots.txt | `{ site: site }` |
+| `on_render_rss` | Rendering RSS feed | `{ site: site }` |
+| `front_default_layout` | Determining default layout | `{ layout: name }` |
+| `on_render_draft_permitted` | Checking draft view permission | `{ post: post, permitted: bool }` |
+| `on_render_front_menu_item` | Rendering each nav menu item | `{ item: nav_item }` |
+| `on_external_menu` | Building external menu entries | `{ items: [] }` |
+| `on_ajax` | Handling /ajax frontend request | `{ params: params }` |
+
+### Content hooks
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `new_post` | New post form loaded | `{ post: post }` |
+| `create_post` | Post created | `{ post: post }` |
+| `created_post` | After post created and saved | `{ post: post }` |
+| `edit_post` | Post edit form loaded | `{ post: post }` |
+| `filter_post` | Post list filtered | `{ posts: collection }` |
+| `list_post` | Post list rendered | `{ posts: collection }` |
+| `destroy_post` | Post about to be deleted | `{ post: post }` |
+| `destroyed_post` | Post deleted | `{ post: post }` |
+| `create_post_draft` | Draft created | `{ post: post }` |
+| `created_post_draft` | After draft saved | `{ post: post }` |
+| `create_category` | Category created | `{ category: cat }` |
+| `created_category` | After category saved | `{ category: cat }` |
+| `list_category` | Category list rendered | `{ categories: collection }` |
+| `before_create_post_tag` | Before tag created | `{ tag: tag }` |
+| `after_create_post_tag` | After tag created | `{ tag: tag }` |
+| `before_update_post_tag` | Before tag updated | `{ tag: tag }` |
+| `after_update_post_tag` | After tag updated | `{ tag: tag }` |
+| `before_destroy_post_tag` | Before tag deleted | `{ tag: tag }` |
+| `after_delete` | After tag deleted | `{ tag: tag }` |
+| `before_list_post_tags` | Before tag list rendered | `{ tags: collection }` |
+| `before_show_post_tag` | Before tag show rendered | `{ tag: tag }` |
+| `list_site` | Site list rendered (superadmin) | `{ sites: collection }` |
+| `extra_custom_fields` | Adding extra field types | `{ fields: [] }` |
+| `available_user_roles_list` | Filtering available roles | `{ roles: [] }` |
+
+### Upload hooks
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `before_upload` | Before file upload processed | `{ file: io, settings: {} }` |
+| `after_upload` | After file uploaded | `{ file_path: path, settings: {} }` |
+| `before_crop_image` | Before image crop | `{ file: path, dim: dim }` |
+| `before_resize_crop` | Before resize+crop | `{ file: path, dim: dim }` |
+
+### Email and asset hooks
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `email` | Before email sent | `{ mail: mail_object }` |
+| `email_late` | After email sent | `{ mail: mail_object }` |
+| `draw_custom_assets` | Rendering custom CSS/JS assets | `nil` |
+
+### Cache hooks (front_cache plugin)
+
+| Hook | Trigger | Params |
+|------|---------|--------|
+| `front_cache_reading_cache` | Cache being read | `{ key: cache_key }` |
+| `front_cache_writing_cache` | Cache being written | `{ key: cache_key }` |
+
+<Note>
+  Hook callbacks are invoked in the order plugins are loaded. Plugin load order follows the order they appear in the enabled plugins list for each site.
+</Note>

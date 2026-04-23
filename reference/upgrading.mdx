@@ -1,0 +1,171 @@
+---
+title: "Upgrading Camaleon CMS"
+description: "Step-by-step instructions for upgrading Camaleon CMS between versions, including database migrations, permission backfills, and breaking change guidance."
+---
+
+Upgrading Camaleon CMS involves updating the gem, running database migrations, and — for certain releases — running backfill tasks to preserve existing permissions. Follow the steps below for a safe upgrade.
+
+## General upgrade steps
+
+<Steps>
+  <Step title="Update the gem">
+    In your `Gemfile`, update the version constraint or run:
+
+    ```bash
+    bundle update camaleon_cms
+    ```
+  </Step>
+  <Step title="Generate and run migrations">
+    Camaleon CMS may ship new database migrations with each release:
+
+    ```bash
+    rake camaleon_cms:generate_migrations
+    rake db:migrate
+    ```
+  </Step>
+  <Step title="Precompile assets">
+    ```bash
+    bundle exec rake assets:precompile
+    ```
+  </Step>
+  <Step title="Restart your server">
+    Restart your application server to pick up the new code and config changes.
+  </Step>
+  <Step title="Run any release-specific backfill tasks">
+    Check the release notes below for any required rake tasks specific to the version you are upgrading to.
+  </Step>
+</Steps>
+
+---
+
+## Upgrading to 2.9.2
+
+Version 2.9.2 is a **security release** with breaking changes around Custom Fields permissions and the `select_eval` field type.
+
+### What changed
+
+- A new `custom_fields` manager permission now controls who can create or edit Custom Field Groups and Custom Fields in the admin UI.
+- The `select_eval` custom field type — which can execute arbitrary Ruby code — now requires an explicit `select_eval` permission for non-admin users.
+- `CurrentRequest` (ActiveSupport::CurrentAttributes) is introduced for thread-safe user/site context in background jobs and console scripts.
+
+### Step 1: Assess impact
+
+Run this in your Rails console to find roles that had Custom Fields access but not `select_eval` permission:
+
+```ruby
+CamaleonCms::UserRole.find_each do |role|
+  site_id = role.site_id
+  manager_meta = role.get_meta("_manager_#{site_id}", {})
+  if manager_meta[:custom_fields] && !manager_meta[:select_eval]
+    puts "Role needs review: #{role.name} (site: #{site_id})"
+  end
+end
+```
+
+### Step 2: Backup your database
+
+```bash
+# PostgreSQL
+pg_dump your_database > backup_before_292_$(date +%Y%m%d).sql
+
+# MySQL
+mysqldump your_database > backup_before_292_$(date +%Y%m%d).sql
+```
+
+### Step 3: Backfill custom_fields permission
+
+To preserve Custom Fields access for existing non-admin roles:
+
+```bash
+bundle exec rake camaleon_cms:backfill_custom_fields_permission
+```
+
+This is idempotent — safe to run multiple times.
+
+### Step 4: Fix the Select Eval checkbox display for admin roles
+
+Admin users already have full access via `can :manage, :all`, but the UI checkbox may appear unchecked. Fix the display:
+
+```bash
+bundle exec rake camaleon_cms:backfill_select_eval_permission
+```
+
+<Note>
+  This task does **not** grant new permissions to admins. It only corrects the checkbox display in the User Roles UI.
+</Note>
+
+### Step 5: Grant select_eval to custom roles (if needed)
+
+If you have non-admin roles that need to create `select_eval` fields, grant the permission explicitly:
+
+```ruby
+# Rails console
+site = CamaleonCms::Site.find(1)
+role = site.user_roles.find_by(slug: 'editor')
+current_meta = role.get_meta("_manager_#{site.id}", {})
+role.set_meta("_manager_#{site.id}", current_meta.merge(select_eval: 1))
+```
+
+Or via **Settings → User Roles → Edit → Manager Permissions → Select Eval checkbox**.
+
+### Step 6: Update background jobs
+
+Any background job that creates `select_eval` fields must now set user context:
+
+```ruby
+class CustomFieldJob < ApplicationJob
+  def perform(site_id, group_id, user_id)
+    site = CamaleonCms::Site.find(site_id)
+    group = site.custom_field_groups.find(group_id)
+    user = CamaleonCms::User.find(user_id)
+
+    CurrentRequest.user = user
+    CurrentRequest.site = site
+
+    begin
+      group.add_field(
+        { name: 'Dynamic', slug: 'dynamic' },
+        { field_key: 'select_eval', command: 'some_method' }
+      )
+    ensure
+      CurrentRequest.reset
+    end
+  end
+end
+```
+
+<Warning>
+  Background jobs and console scripts that create `select_eval` fields **will raise `CanCan::AccessDenied`** without a user context set via `CurrentRequest`.
+</Warning>
+
+---
+
+## Upgrading to 2.8.1
+
+This release replaces `sass-rails` with `dartsass-sprockets`.
+
+**Required:** Remove `sass` and `sass-rails` from your application's `Gemfile` before or immediately after upgrading:
+
+```ruby Gemfile
+# Remove these lines:
+gem 'sass'         # [!code --]
+gem 'sass-rails'   # [!code --]
+```
+
+Then run `bundle install`. The `dartsass-sprockets` gem is pulled in automatically as a dependency of `camaleon_cms`.
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="CanCan::AccessDenied when creating custom fields">
+    A user or background job is trying to create a `select_eval` field without the required permission. Either grant the `select_eval` permission to the role (via admin UI or Rails console), or set `CurrentRequest.user` and `CurrentRequest.site` in background jobs.
+  </Accordion>
+  <Accordion title="Migrations already exist error">
+    If you see a migration conflict, check that `auto_include_migrations` is `true` in `system.json` and run `rake camaleon_cms:generate_migrations` to copy fresh migration files before running `db:migrate`.
+  </Accordion>
+  <Accordion title="Asset compilation errors after upgrade">
+    Ensure you've removed `sass-rails` from your Gemfile (required from 2.8.1+). Run `bundle install` then `rake assets:clobber && rake assets:precompile`.
+  </Accordion>
+</AccordionGroup>

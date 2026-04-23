@@ -1,0 +1,126 @@
+---
+title: "Theme system overview"
+description: "Camaleon CMS themes control the visual presentation of your site. Learn how themes work, how to install them, and the built-in themes available out of the box."
+---
+
+A **theme** in Camaleon CMS is a self-contained package that controls the visual presentation of your site's frontend. Themes supply layouts, view templates, stylesheets, and JavaScript files. Unlike plugins — which extend CMS functionality and can be layered on top of each other — each site has exactly one active theme at a time. Themes can also define custom admin settings pages and respond to the same hook events as plugins.
+
+## Built-in themes
+
+Camaleon CMS ships with three themes inside `app/apps/themes/`:
+
+| Folder | Display name | Description |
+|---|---|---|
+| `camaleon_first` | Default Theme | The standard starter theme. Demonstrates the full theme API. |
+| `new` | Clean Theme | A minimal, stripped-down starting point. |
+| `default` | Wordpress Theme | A WordPress-style layout rebuilt with Camaleon CMS. |
+
+<Tip>
+  The [Camaleon theme store](https://camaleon.website) lists community-built themes including eCommerce, eFashion, and Shoppy. Browse and install them from **Appearances → Theme Store** in the admin panel.
+</Tip>
+
+## Themes vs plugins
+
+| | Theme | Plugin |
+|---|---|---|
+| Active at once | One per site | Many per site |
+| Primary role | Frontend presentation | Functional extension |
+| Registered via | `camaleon_theme.json` (gem) or `config/config.json` (directory) | `camaleon_plugin.json` (gem) or `config/config.json` (directory) |
+| Hook support | Yes | Yes |
+
+## Theme directory structure
+
+Themes live under `app/apps/themes/<theme_key>/` in your Rails application. The generator creates this layout:
+
+```
+app/apps/themes/my_theme/
+├── config/
+│   ├── config.json          # Theme metadata, helpers, and hook declarations
+│   └── locales/             # i18n translation files
+├── assets/
+│   ├── css/                 # Stylesheets (served via the asset pipeline)
+│   ├── js/                  # JavaScript files
+│   └── images/              # Theme images
+├── views/
+│   ├── layouts/             # ERB layout files
+│   ├── partials/            # ERB partial templates
+│   ├── admin/
+│   │   └── settings.html.erb  # Custom admin settings tab (optional)
+│   └── index.html.erb       # Default home view
+└── main_helper.rb           # Theme helper module with hook callbacks
+```
+
+### Gem-mode themes
+
+A theme can be distributed as a Ruby gem. Gem-mode themes are detected by the presence of a `camaleon_theme.json` file at the gem root. In gem mode, the path structure is slightly different — assets are resolved without the extra `assets/` prefix, and views without the extra `views/` prefix. The `gem_mode` flag in the theme's settings hash (returned by `PluginRoutes.theme_info`) tells the helpers which resolution to use.
+
+## How Camaleon finds themes
+
+`PluginRoutes.all_themes` scans two locations and returns every installed theme as a settings hash:
+
+1. **Directory mode** — `app/apps/themes/*` in your Rails app
+2. **Gem mode** — any installed gem that contains `camaleon_theme.json`
+
+A theme is considered **enabled** when at least one site has it set as its active theme. `PluginRoutes.all_enabled_themes` iterates over all sites and returns only those.
+
+```ruby
+# Returns the settings hash for a specific theme
+PluginRoutes.theme_info("my_theme")
+# => { "key" => "my_theme", "name" => "My Theme", "path" => "...", "gem_mode" => false, ... }
+
+# Returns settings hashes for all themes active on any site
+PluginRoutes.all_enabled_themes
+# => [{ "key" => "camaleon_first", ... }, ...]
+```
+
+## How themes are stored in the database
+
+Each site's active theme is recorded as a `CamaleonCms::Theme` record — a `TermTaxonomy` row with `taxonomy: :theme`. The `slug` column holds the theme key (matching the folder name or gem key). The `Theme` model delegates to `PluginRoutes.theme_info(slug)` to retrieve the configuration from disk:
+
+```ruby
+theme = current_site.get_theme        # => decorated Theme record
+theme.slug                            # => "camaleon_first"
+theme.settings                        # => hash from config.json + path metadata
+theme.settings_file                   # => absolute path to admin/settings view
+```
+
+Only one theme record per site has a non-`inactive` status at a time. Installing a new theme calls `update_all(status: 'inactive')` on the site's existing themes before activating the new one.
+
+## Activating a theme from the admin panel
+
+<Steps>
+  <Step title="Open Appearances">
+    In the admin sidebar, click **Appearances**. You will see a grid of all installed themes.
+  </Step>
+  <Step title="Select a theme">
+    Click the theme thumbnail you want to activate, then click **Activate**.
+  </Step>
+  <Step title="Verify the change">
+    Visit the site frontend to confirm the new theme is rendering. The admin panel will reflect the active theme name in the **Appearances** heading.
+  </Step>
+</Steps>
+
+Activating a theme programmatically calls `site_install_theme(key)`:
+
+```ruby
+# Install (activate) a theme for the current site
+site_install_theme("my_theme")
+
+# Uninstall (deactivate) the current theme
+site_uninstall_theme
+```
+
+`site_install_theme` stores the new theme key in site options, marks all other theme records inactive, runs the theme's `on_active` hook, and reloads routes so any theme-defined routes take effect.
+
+## Key theme helper methods
+
+These helpers are available in all theme views and layouts. See [Theme helpers reference](/themes/theme-helpers) for the full API.
+
+| Method | Returns |
+|---|---|
+| `theme_asset_path(asset, theme_name = nil)` | Asset pipeline path for a file inside the theme's `assets/` folder |
+| `theme_asset_url(asset, theme_name = nil)` | Absolute URL for a theme asset |
+| `theme_view(view_name)` | Full view path including the theme's `views/` prefix |
+| `theme_layout(layout_name)` | Full layout path including the theme's `views/layouts/` prefix |
+| `current_theme` | The decorated `Theme` model for the active theme |
+| `theme_home_page` | Returns the configured home page post, or a placeholder |

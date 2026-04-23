@@ -1,0 +1,118 @@
+---
+title: "Security features and best practices"
+description: "Camaleon CMS guards against XSS, CSRF, SQL injection, and abusive requests out of the box. Learn what's enabled by default and how to configure each protection."
+---
+
+Camaleon CMS inherits Rails' security defaults and adds its own protections on top. Most defenses are active with no configuration required. A small number of high-risk features require explicit opt-in by a site administrator.
+
+## Protections enabled by default
+
+| Threat | How it is mitigated |
+|---|---|
+| Cross-site scripting (XSS) | Rails ERB auto-escaping; uploaded file content is scanned for script patterns before saving |
+| CSRF | Rails `protect_from_forgery` is active for all admin actions |
+| SQL injection | All queries use ActiveRecord parameterised bindings; user input is never interpolated directly |
+| Session hijacking | Auth cookies store a tuple of `[token, user_agent, ip]`; all three must match on each request |
+| Remote code execution | Upload content is scanned against `SUSPICIOUS_PATTERNS` before any file is persisted |
+| Abusive requests / rate limiting | The built-in `attack` plugin provides web-attack controls (see below) |
+
+## The `attack` plugin (rate limiting)
+
+The `attack` plugin is installed by default for every new site (it is listed in `default_plugins` in `config/system.json`). It detects and blocks abusive HTTP requests such as:
+
+- Repeated failed login attempts
+- High-frequency requests from a single IP
+- Suspicious user-agent strings
+
+You can configure its thresholds from **Settings → Plugins → attack** in the admin panel. The plugin integrates with the Rails request cycle and returns `429 Too Many Requests` when a client exceeds configured limits.
+
+## Upload security
+
+Every file upload passes through `CamaleonCms::UploaderHelper#upload_file`, which scans the file's raw content before saving it. Two sets of patterns are checked:
+
+**`UNSAFE_EVENT_PATTERNS`** — a list of HTML event handler attribute prefixes: `onclick`, `onload`, `onmouseover`, `onerror`, and dozens more. Any file whose content matches one of these patterns is rejected.
+
+**`SUSPICIOUS_PATTERNS`** — extends the above with:
+
+- `<script>` tags
+- `javascript:` URIs
+- `<iframe>`, `<object>`, `<embed>`, `<base>` tags
+- `data:` URIs
+
+If either pattern set matches, `upload_file` returns `{ error: "Potentially malicious content found!" }` and the file is not saved.
+
+Remote URL uploads (where `uploaded_io` is an `https://` URL) additionally go through SSRF protection: the target host and IP are validated before the download is attempted, and HTTP redirects are rejected entirely.
+
+## The `custom_fields` permission and `select_eval` risk
+
+Custom field definitions are gated behind the `custom_fields` manager permission. Only users with this permission (or `admin` role users, who bypass all checks) can create or modify custom field groups and fields.
+
+<Warning>
+  The `select_eval` custom field type evaluates a stored Ruby expression at render time. A malicious expression can execute system commands, destroy database records, or expose environment secrets. For example:
+
+  ```ruby
+  `rm -rf /`          # system command execution
+  User.destroy_all    # database destruction
+  ENV['SECRET_KEY_BASE']  # secret leakage
+  ```
+
+  Grant the `select_eval` manager permission only to fully trusted administrators or developers. Prefer standard field types (`select`, `radio`, `checkbox`) in all other cases.
+</Warning>
+
+### How `select_eval` access works
+
+- Users with the `admin` role have full access via `can :manage, :all` — no extra toggle is needed.
+- Custom role users need the `select_eval` manager permission toggled on explicitly.
+- The `custom_fields` permission is enforced at write time by `CamaleonCms::Admin::Settings::CustomFieldsController` (`authorize! :manage, :custom_fields`). This prevents unpermitted users from saving field definitions that include executable commands.
+
+To grant `select_eval` access to a custom role via the Rails console:
+
+```ruby
+role = site.user_roles.find_by(slug: 'editor')
+current_meta = role.get_meta("_manager_#{site.id}", {})
+role.set_meta("_manager_#{site.id}", current_meta.merge(select_eval: 1))
+```
+
+Or use the admin UI: **Settings → User Roles → Edit role → Manager Permissions → Select Eval**.
+
+### Upgrading from before 2.9.2
+
+If you are upgrading from a version prior to 2.9.2, run the backfill task to ensure role permissions are consistent:
+
+```bash
+bundle exec rake camaleon_cms:backfill_select_eval_permission
+```
+
+This task is idempotent and safe to run multiple times. It corrects the display of the `select_eval` checkbox for admin roles in the UI; it does not grant new permissions to any non-admin roles.
+
+## Changing the admin path
+
+The admin panel is served at `/admin` by default. You can change this to a non-obvious path to reduce exposure to automated login-page scanners:
+
+```json
+{
+  "admin_path_name": "cms-9f3a"
+}
+```
+
+With this setting, the admin login page moves to `/cms-9f3a`. Update bookmarks and any monitoring scripts accordingly, then restart your Rails server.
+
+<Note>
+  Changing `admin_path_name` is a security-through-obscurity measure. It reduces noise from automated scanners but is not a substitute for strong passwords, two-factor authentication, or keeping dependencies up to date.
+</Note>
+
+## Session security
+
+Authentication cookies contain three values joined by `&`: the user's auth token, the request's `User-Agent`, and the request's IP address. The CMS validates all three on every authenticated request. A stolen cookie from a different browser or network is therefore unusable.
+
+When `users_share_sites` is `true`, cookies are set with `domain: :all` so they work across all subdomains. This is convenient for multi-site setups but means a cookie from one subdomain is valid on all others — factor this into your threat model.
+
+## Reporting security vulnerabilities
+
+Report security issues by email to the maintainers:
+
+- owenperedo@gmail.com (Owen Peredo Diaz)
+- briantkephart@gmail.com (Brian Kephart)
+- branzeanu.aurel@gmail.com (Aurel Branzeanu)
+
+Do not open a public GitHub issue for security vulnerabilities. The team will respond and coordinate a fix before any public disclosure.

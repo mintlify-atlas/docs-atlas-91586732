@@ -1,0 +1,310 @@
+---
+title: "UploaderHelper API reference"
+description: "Reference for CamaleonCms::UploaderHelper — the upload_file method and supporting file management utilities for local and S3 storage."
+---
+
+`CamaleonCms::UploaderHelper` is the engine's primary file-management API. It supports local disk and Amazon S3 storage (selectable per site from the admin panel), generates thumbnails and additional image versions, validates file formats and sizes, and guards against malicious file content via two built-in constant pattern lists.
+
+## Security constants
+
+### `UNSAFE_EVENT_PATTERNS`
+
+An array of compiled `Regexp` objects derived from common JavaScript event-handler attribute prefixes (`onclick`, `onload`, `onmouseover`, …). Any file whose content matches one of these patterns is rejected before it reaches the storage layer.
+
+### `SUSPICIOUS_PATTERNS`
+
+A superset of `UNSAFE_EVENT_PATTERNS` that additionally blocks:
+
+| Pattern | What it blocks |
+|---------|---------------|
+| `/<script[\s>]/i` | `<script>` tags |
+| `/javascript:/i` | `javascript:` URIs in `href`/`src` |
+| `/<iframe[\s>]/i` | Iframes |
+| `/<object[\s>]/i` | Object embed tags |
+| `/<embed[\s>]/i` | Embed tags |
+| `/<base[\s>]/i` | Base tags (URL manipulation) |
+| `/data:/i` | `data:` URIs (may carry inline scripts) |
+
+All uploaded file contents are scanned against `SUSPICIOUS_PATTERNS` before the file is saved. A match causes `upload_file` to return `{ error: 'Potentially malicious content found!' }`.
+
+---
+
+## `upload_file`
+
+```ruby
+upload_file(uploaded_io, settings = {}) → Hash
+```
+
+The main entry point for uploading a file. Accepts a file object from a form upload, a local file path string, or a remote HTTP/HTTPS URL. Validates format and size, optionally resizes the image, generates a thumbnail and additional image versions, and then delegates to the active uploader backend (local or S3).
+
+### Parameters
+
+**`uploaded_io`** — One of:
+- `ActionDispatch::Http::UploadedFile` — a file submitted from an HTML form.
+- `String` path — an absolute local file path.
+- `String` URL — an `http://` or `https://` URL; the file is downloaded before processing.
+
+**`settings`** — Optional hash of upload options:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `folder` | `String` | `""` | Sub-directory within the site's media root where the file is saved. Example: `"uploads/documents"`. |
+| `generate_thumb` | `Boolean` | `true` | Whether to generate a thumbnail image when the file is an image. |
+| `maximum` | `Integer` (bytes) | site option `filesystem_max_size` (default 100 MB) | Maximum permitted file size in bytes. |
+| `dimension` | `String` | `nil` | Resize/crop the image before saving. Format: `"WxH"` (crop), `"Wx"` (width only), `"xH"` (height only), `"WxH?"` (only if larger). Example: `"300x300"`. |
+| `formats` | `String` | `"*"` | Allowed file extensions or group names: `"jpg,png,gif"` or one of `"images"`, `"videos"`, `"audios"`, `"documents"`. Use `"*"` to allow everything. |
+| `remove_source` | `Boolean` | `false` | Delete the source file from disk after it has been saved to the storage backend. |
+| `same_name` | `Boolean` | `false` | Save under the exact original filename. When `false`, a non-conflicting name is found automatically (e.g. `photo_1.jpg`). |
+| `versions` | `String` | `""` | Comma-separated list of additional image dimensions to create alongside the main file. Example: `"300x300,505x350"`. |
+| `thumb_size` | `String` | `nil` | Override the thumbnail dimensions. Example: `"120x120"`. Uses the site's `filesystem_thumb_size` setting when `nil`. |
+| `temporal_time` | `Integer` (seconds) | `0` | When greater than 0, schedules the file for automatic deletion after this many seconds (requires Active Job). |
+
+### Return value
+
+`upload_file` always returns a `Hash`. On success the hash is the file object returned by the uploader backend:
+
+```ruby
+{
+  "file_type" => "image",   # "image" | "video" | "audio" | "document" | "other"
+  "key"       => "uploads/photo.jpg",  # storage key / relative path
+  "url"       => "https://…",          # public URL (S3) or root-relative path (local)
+  "thumb"     => "uploads/thumb/photo-jpg.jpg"  # thumbnail path (images only)
+}
+```
+
+On error the hash contains only an `error` key:
+
+```ruby
+{ error: "File size exceeded (100 MB)" }
+{ error: "File format error (images)" }
+{ error: "Potentially malicious content found!" }
+{ error: "Invalid file path" }
+{ error: "File is empty" }
+```
+
+<Note>
+Check for `result[:error].present?` or `result['error'].present?` before using the returned URL or key. The method never raises — all failures are returned as error hashes.
+</Note>
+
+### Examples
+
+```ruby
+# Basic image upload from a form parameter
+result = upload_file(params[:avatar], { formats: 'images', folder: 'avatars' })
+if result[:error].blank?
+  @user.update(avatar_url: result['url'])
+end
+
+# Upload with a size limit and extra versions
+result = upload_file(
+  params[:photo],
+  formats: 'jpg,png,gif',
+  maximum: 5.megabytes,
+  versions: '200x200,800x600',
+  folder: 'gallery'
+)
+
+# Download a remote file and store it
+result = upload_file(
+  'https://example.com/logo.png',
+  formats: 'images',
+  folder: 'imported'
+)
+
+# Temporary upload that expires in 10 minutes
+result = upload_file(
+  params[:draft_image],
+  temporal_time: 10.minutes,
+  folder: 'tmp'
+)
+```
+
+---
+
+## `cama_tmp_upload`
+
+```ruby
+cama_tmp_upload(uploaded_io, args = {}) → Hash
+```
+
+Downloads or copies a file to a temporary directory under `Rails.public_path/tmp/<site_id>/`. Supports remote URLs, local paths, and base64 data URIs. Used internally by `upload_file` when the source is a URL.
+
+**Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `uploaded_io` | `String` | Remote URL, local path, or `data:` base64 string. |
+| `args[:name]` | `String` | Override the saved filename. Required for base64 uploads. |
+| `args[:formats]` | `String` | Allowed extensions/groups (same syntax as `upload_file`). |
+| `args[:dimension]` | `String` | Resize dimension applied after saving (e.g. `"200x200"`). |
+| `args[:maximum]` | `Integer` | Max file size in bytes. |
+| `args[:path]` | `String` | Override the tmp directory path. |
+
+**Returns**
+
+```ruby
+{ file_path: "/var/app/public/tmp/1/logo.png", error: nil }
+# or
+{ error: "File format error (images)" }
+```
+
+**Examples**
+
+```ruby
+result = cama_tmp_upload('https://example.com/logo.png')
+# => { file_path: "/var/app/public/tmp/1/logo.png", error: nil }
+
+result = cama_tmp_upload('/var/uploads/logo 2.png', { name: 'logo.png' })
+# => { file_path: "/var/app/public/tmp/1/logo.png", error: nil }
+```
+
+---
+
+## `uploader_verify_name`
+
+```ruby
+uploader_verify_name(file_path) → String
+```
+
+Given an absolute file path, returns a non-conflicting path by appending `_1`, `_2`, etc. if the filename already exists in that directory.
+
+**Returns** `String` — The original path if it doesn't exist, or a suffixed variant.
+
+**Example**
+
+```ruby
+uploader_verify_name("/var/www/my_image.jpg")
+# => "/var/www/my_image_1.jpg"  (if my_image.jpg already exists)
+```
+
+---
+
+## `cama_file_path_to_url`
+
+```ruby
+cama_file_path_to_url(file_path) → String
+```
+
+Converts an absolute server file path under `Rails.public_path` to a full public URL.
+
+**Example**
+
+```ruby
+cama_file_path_to_url("/var/app/public/uploads/photo.jpg")
+# => "https://mysite.com/uploads/photo.jpg"
+```
+
+---
+
+## `cama_url_to_file_path`
+
+```ruby
+cama_url_to_file_path(url) → String
+```
+
+Converts a public URL to its corresponding absolute file path under `Rails.public_path`.
+
+**Example**
+
+```ruby
+cama_url_to_file_path("https://mysite.com/uploads/photo.jpg")
+# => "/var/app/public/uploads/photo.jpg"
+```
+
+---
+
+## `cama_crop_image`
+
+```ruby
+cama_crop_image(file_path, w = nil, h = nil, w_offset = 0, h_offset = 0, resize = false, replace = true) → String
+```
+
+Crops (or resizes) an image using MiniMagick.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `file_path` | `String` | Absolute path to the source image. |
+| `w` | `String\|nil` | Target width. Append `?` to apply only if the image is larger. |
+| `h` | `String\|nil` | Target height. |
+| `w_offset` | `Integer` | Left offset for crop. |
+| `h_offset` | `Integer` | Top offset for crop. |
+| `resize` | `Boolean` | `true` to resize, `false` to crop. |
+| `replace` | `Boolean` | `true` to overwrite the original file, `false` to create `<name>_crop.<ext>`. |
+
+**Returns** `String` — the path where the result was saved.
+
+---
+
+## `cama_resize_and_crop`
+
+```ruby
+cama_resize_and_crop(file, w, h, settings = {}) → String
+```
+
+Resizes then crops an image to exact dimensions, controlling gravity (crop anchor).
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `gravity` | `:north_east` | Crop anchor: `:north_west`, `:north`, `:north_east`, `:east`, `:south_east`, `:south`, `:south_west`, `:west`, `:center`. |
+| `overwrite` | `true` | Overwrite the source file. |
+| `output_name` | `""` | Custom output filename when `overwrite` is `false`. |
+
+SVG inputs are automatically converted to JPEG.
+
+**Returns** `String` — path to the saved image.
+
+---
+
+## `cama_resize_upload`
+
+```ruby
+cama_resize_upload(image_path, dimension, args = {}) → String
+```
+
+Resizes an image if it is a recognised image format and a dimension is provided. Used internally by `upload_file` when the `dimension` setting is set.
+
+**Returns** `String` — path to the (possibly resized) image.
+
+---
+
+## `cama_uploader`
+
+```ruby
+cama_uploader → CamaleonCmsLocalUploader | CamaleonCmsAwsUploader
+```
+
+Returns the active uploader backend for the current site. Fires the `on_uploader` hook so plugins can swap in a custom uploader.
+
+The backend is chosen from the site option `filesystem_type`:
+- `"local"` (default) — `CamaleonCmsLocalUploader`
+- `"s3"` or `"aws"` — `CamaleonCmsAwsUploader`
+
+**Example**
+
+```ruby
+# Inject a custom uploader via a plugin hook
+def on_uploader(args)
+  args[:custom_uploader] = MyCustomUploader.new(...)
+end
+```
+
+---
+
+## `cama_uploader_generate_thumbnail`
+
+```ruby
+cama_uploader_generate_thumbnail(uploaded_io, key, thumb_size = nil, remove_source = false) → Hash
+```
+
+Generates a thumbnail for an already-uploaded image and saves it to the `thumb/` subfolder. Called automatically by `upload_file` when `generate_thumb: true`.
+
+---
+
+## `slugify` / `slugify_folder`
+
+```ruby
+slugify(val) → String
+slugify_folder(val) → String
+```
+
+Helper utilities for normalising filenames and folder paths to URL-safe slugs (lowercase, hyphens, no special characters). `slugify_folder` slugifies only the last path segment, preserving the leading path.

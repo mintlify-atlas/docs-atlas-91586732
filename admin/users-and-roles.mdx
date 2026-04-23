@@ -1,0 +1,105 @@
+---
+title: "Users, roles, and permissions"
+description: "Manage user accounts and define access control in Camaleon CMS. Covers built-in roles, custom roles, manager permissions, and user sharing across sites."
+---
+
+Camaleon CMS uses a role-based access control system built on [CanCan](https://github.com/CanCanCommunity/cancancan). Every user account is assigned a role that determines which parts of the admin panel they can access and what actions they can perform on content. Two built-in roles exist out of the box; custom roles let you define fine-grained permissions per site.
+
+## Built-in roles
+
+| Role | Access level |
+|---|---|
+| `admin` | Full access to everything (`can :manage, :all`). Not scoped to a single site. |
+| `client` | Read-only access to all resources (`can :read, :all`). Used for front-end-only users. |
+
+Admin users bypass all permission checks. Client users can read any resource but cannot create, update, or delete anything.
+
+### Default role for new users
+
+When a user registers, they receive the role specified in `config/system.json`:
+
+```json
+{
+  "default_user_role": "client"
+}
+```
+
+Change `"client"` to any custom role slug to assign a different default role automatically.
+
+## Custom roles
+
+Custom roles sit between `admin` and `client`. You create them in the admin panel under **Settings → User Roles**. Each custom role is stored as a `CamaleonCms::UserRole` record scoped to the current site.
+
+When you delete a custom role, all users who held that role are automatically downgraded to `client`.
+
+### Post-type permissions
+
+For each post type, a custom role can be granted any combination of the following permissions:
+
+| Permission key | What it allows |
+|---|---|
+| `edit` | Create or edit the user's own posts in this post type |
+| `edit_other` | Edit posts authored by other users |
+| `edit_publish` | Edit already-published posts |
+| `publish` | Publish (make public) posts in this post type |
+| `delete` | Delete the user's own posts |
+| `delete_other` | Delete posts authored by other users |
+| `delete_publish` | Delete already-published posts |
+| `manage_categories` | Create, edit, and delete categories for this post type |
+| `manage_tags` | Create, edit, and delete tags for this post type |
+
+### Manager permissions
+
+Manager permissions control access to admin-wide areas rather than individual post types. Toggle them per role from **Settings → User Roles → Edit role → Manager Permissions**:
+
+| Permission key | What it grants |
+|---|---|
+| `media` | Manage files in the media library |
+| `comments` | Manage reader comments |
+| `themes` | Activate and configure themes |
+| `widgets` | Manage sidebar widgets |
+| `nav_menu` | Manage navigation menus |
+| `plugins` | Install and manage plugins |
+| `users` | Manage user accounts |
+| `settings` | Access site settings |
+| `custom_fields` | Create and modify custom field groups and fields |
+| `select_eval` | Enable use of the `select_eval` field type |
+| `theme_settings` | Access theme-specific settings |
+
+<Warning>
+  The `select_eval` custom field type can execute arbitrary Ruby code. Grant the `select_eval` manager permission only to fully trusted users, such as site administrators or developers. See [Security features](/admin/security) for details.
+</Warning>
+
+#### Granting `select_eval` access via the Rails console
+
+If you need to grant `select_eval` access to a custom role programmatically:
+
+```ruby
+role = site.user_roles.find_by(slug: 'editor')
+current_meta = role.get_meta("_manager_#{site.id}", {})
+role.set_meta("_manager_#{site.id}", current_meta.merge(select_eval: 1))
+```
+
+## Sharing users across sites
+
+In a multi-site installation you can allow a single user account to log in to any site by setting `users_share_sites` to `true` in `config/system.json`:
+
+```json
+{
+  "users_share_sites": true
+}
+```
+
+When `true`, the authentication cookie is set with `domain: :all`, making it valid across all subdomains of the host. When `false`, each user is bound to the site where they registered.
+
+<Note>
+  Decide the value of `users_share_sites` before your first migration. Changing it after users already exist may require a data migration to update cookie domains.
+</Note>
+
+## Impersonating a user
+
+Admin users can impersonate any other user from the admin panel. Under the hood this calls `session_switch_user`, which stores the current session token and then signs in as the target user. The original admin session is preserved so you can switch back.
+
+Impersonation is governed by a CanCan rule: you cannot impersonate yourself (the `impersonate` ability is explicitly denied when `u.id == user.id`).
+
+To end impersonation, click **Back to my account** in the admin toolbar. This invokes `session_back_to_parent`, which restores the original cookie and redirects to the admin dashboard.

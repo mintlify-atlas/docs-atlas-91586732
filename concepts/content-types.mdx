@@ -1,0 +1,196 @@
+---
+title: "Content types in Camaleon CMS"
+description: "Post types define the structure of your content in Camaleon CMS. Learn how to create, configure, and display custom content types with categories and tags."
+---
+
+A **post type** is the content blueprint in Camaleon CMS — the equivalent of a WordPress Custom Post Type (CPT). Every piece of content on a site belongs to exactly one post type. The two built-in post types (`post` and `page`) cannot be deleted, but you can create as many additional post types as your site needs. Each post type controls which features are available to its posts: rich content, summary, featured image, categories, tags, SEO fields, comments, template selection, and layout selection.
+
+## Relationship between post types, posts, categories, and tags
+
+```
+Site
+└── PostType  (e.g. "Blog", "Products")
+    ├── Category  (hierarchical, optional)
+    │   └── Category  (child category)
+    ├── PostTag   (flat, optional)
+    └── Post      (the actual content item)
+        ├── belongs to one PostType
+        ├── many Categories (through term_relationships)
+        └── many PostTags   (through term_relationships)
+```
+
+A `PostType` owns its categories and tags — they are not shared across post types. When a category is deleted, any posts that have no remaining category are automatically reassigned to the post type's default `uncategorized` category.
+
+## Creating a post type from the admin panel
+
+<Steps>
+  <Step title="Open post type settings">
+    In the admin panel, navigate to **Settings → Post Types** and click **New Post Type**.
+  </Step>
+  <Step title="Set the name and slug">
+    Enter a human-readable name (e.g. "Portfolio") and an optional slug. The slug becomes part of the post type's URL and is used to identify it in code.
+  </Step>
+  <Step title="Configure features">
+    Toggle the options that this post type should support. The defaults are shown in the table below.
+  </Step>
+  <Step title="Save">
+    Click **Create**. Routes are reloaded automatically and the post type appears in the **Contents** sidebar menu.
+  </Step>
+</Steps>
+
+## Post type settings reference
+
+| Setting | Default | Description |
+|---|---|---|
+| `has_category` | `false` | Enable hierarchical categories |
+| `has_single_category` | `false` | Enable single (non-hierarchical) category |
+| `has_tags` | `false` | Enable flat post tags |
+| `has_summary` | `true` | Enable excerpt / summary field |
+| `has_content` | `true` | Enable rich text content field |
+| `has_comments` | `false` | Enable comments on posts |
+| `has_picture` | `true` | Enable featured image |
+| `has_template` | `true` | Let editors choose a per-post template |
+| `has_seo` | `true` | Enable SEO meta fields |
+| `has_layout` | `false` | Let editors choose a per-post layout |
+| `default_layout` | `""` | Default layout name for all posts |
+| `not_deleted` | `false` | Prevent accidental deletion of this post type |
+| `contents_route_format` | `"post"` | URL pattern used for individual posts (see below) |
+
+You can also set these programmatically:
+
+```ruby
+post_type = current_site.post_types.find_by(slug: "portfolio")
+post_type.set_settings(
+  has_category: true,
+  has_tags: true,
+  has_picture: true,
+  default_layout: "portfolio_layout"
+)
+```
+
+## URL patterns (contents_route_format)
+
+The `contents_route_format` setting controls how individual post URLs are structured. Choose the format that fits your site architecture.
+
+<AccordionGroup>
+  <Accordion title="post (default) — /:slug">
+    The simplest format. Posts are served at the root level.
+
+    ```
+    https://example.com/my-article.html
+    ```
+  </Accordion>
+  <Accordion title="post_of_posttype — /:post_type_title/:slug">
+    Nests posts under the post type's title slug.
+
+    ```
+    https://example.com/services/my-service.html
+    ```
+  </Accordion>
+  <Accordion title="post_of_category — /category/:category_id-:title/:slug">
+    Nests posts under their primary category.
+
+    ```
+    https://example.com/category/17-design/my-post.html
+    ```
+  </Accordion>
+  <Accordion title="post_of_post_type — /group/:post_type_id-:title/:slug">
+    Nests posts under a group segment with the post type ID.
+
+    ```
+    https://example.com/group/17-services/my-service.html
+    ```
+  </Accordion>
+  <Accordion title="post_of_category_post_type — /:post_type_title/category/:category_id-:title/:slug">
+    Combines post type title and category in the path.
+
+    ```
+    https://example.com/services/category/17-design/my-post.html
+    ```
+  </Accordion>
+  <Accordion title="hierarchy_post — /:parent1_slug/:parent2_slug/.../:slug">
+    Mirrors the parent/child hierarchy of pages. Requires `has_parent_structure` to be enabled.
+
+    ```
+    https://example.com/item-1/item-1-1/item-1-1-1.html
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Template and layout selection
+
+Camaleon CMS resolves the view template for a post in the following order:
+
+1. `page_<post_id>` — a template named after the specific post ID
+2. The template set on the post itself (`post.get_template`)
+3. `post_types/<post_type_slug>/single` — a post-type-specific single template
+4. `<post_type_slug>` — a view named after the post type slug
+5. `single` — the theme's generic fallback template
+
+Layouts are resolved from `post.get_layout`. If the post type has `has_layout: false`, only the default layout set on the post type (`default_layout`) is used, regardless of any per-post override.
+
+## Accessing post data in themes
+
+All post objects passed to theme views are decorated with `CamaleonCms::PostDecorator`. Use the decorator methods rather than raw model attributes.
+
+```ruby
+# In a theme template (e.g. single.html.erb)
+
+# Title
+@post.the_title           # => "My Article"
+
+# Content (runs shortcodes)
+@post.the_content         # => "<p>Hello world</p>"
+
+# Excerpt / summary (falls back to truncated content)
+@post.the_excerpt(150)    # => "Short description..."
+
+# Featured image URL
+@post.the_thumb_url       # => "https://..."
+
+# Canonical URL and path
+@post.the_url             # => "https://example.com/my-article.html"
+@post.the_path            # => "/my-article.html"
+
+# Post type
+@post.the_post_type       # => decorated PostType
+
+# Categories and tags
+@post.the_categories      # => ActiveRecord collection
+@post.the_tags            # => ActiveRecord collection
+
+# Navigation helpers
+@post.the_next_post       # => next decorated Post, or nil
+@post.the_prev_post       # => previous decorated Post, or nil
+```
+
+## Listing posts from a post type in a theme
+
+```ruby
+# Fetch all published posts for a post type
+post_type = current_site.post_types.find_by(slug: "blog")
+posts = post_type.the_posts.paginate(page: params[:page], per_page: current_site.front_per_page)
+
+# Iterate in the view
+posts.each do |post|
+  post = post.decorate
+  puts post.the_title
+  puts post.the_url
+end
+```
+
+## Adding a post programmatically
+
+```ruby
+post_type = current_site.post_types.find_by(slug: "portfolio")
+
+post_type.add_post(
+  title:   "New Project",
+  content: "<p>Project details here.</p>",
+  thumb:   "https://example.com/cover.jpg",
+  fields:  { subtitle: "A great project", accent_color: "#ff6600" },
+  settings: { has_content: true, default_template: "portfolio/detail" }
+)
+```
+
+`add_post` returns the decorated post if creation succeeded, or an errors object if validation failed.

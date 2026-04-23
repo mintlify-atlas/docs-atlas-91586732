@@ -1,0 +1,123 @@
+---
+title: "Plugin system overview"
+description: "Camaleon CMS plugins use hooks to extend the CMS. Learn how plugins are discovered, installed, and managed, plus a roundup of available community plugins."
+---
+
+Camaleon CMS uses a plugin system to add or modify functionality without touching core code. Plugins register hook callbacks declared in a `config.json` manifest; the CMS calls those callbacks at well-defined points in the request lifecycle (before load, after render, on install, and so on). This differs from themes, which control presentation: a plugin can run on any theme and survives a theme change.
+
+## How plugins are discovered
+
+The CMS scans two locations for plugins at boot time (`PluginRoutes.all_plugins`):
+
+1. **`app/apps/plugins/`** inside your Rails application — folder-based plugins you maintain in the same repo.
+2. **`<camaleon_cms gem>/app/apps/plugins/`** — plugins bundled with the gem itself.
+3. **Gem plugins** — any installed gem that contains a `config/camaleon_plugin.json` file is automatically registered as a plugin with `gem_mode: true`.
+
+Each plugin directory must contain a `config/config.json` (folder plugins) or `config/camaleon_plugin.json` (gem plugins) that declares its key, hooks, and helpers.
+
+## Installing and managing plugins
+
+### From the admin panel
+
+Navigate to **Admin → Plugins**. Available plugins are listed with their current status. Use the install/uninstall toggle to activate or deactivate a plugin per site.
+
+### Programmatically
+
+Three helper methods manage the plugin lifecycle. All three operate on `current_site`:
+
+```ruby
+# Install and activate a plugin for the current site.
+# Triggers the on_active hook, then plugin_after_install and
+# plugin_<key>_after_install hooks.
+plugin_install(plugin_key)
+
+# Deactivate a plugin for the current site.
+# Triggers the on_inactive hook, then plugin_after_uninstall and
+# plugin_<key>_after_uninstall hooks.
+plugin_uninstall(plugin_key)
+
+# Run the upgrade path for a plugin (called when the version in
+# config.json is newer than the installed version).
+# Triggers the on_upgrade hook.
+plugin_upgrade(plugin_key)
+```
+
+These methods are available in any controller or helper that includes `CamaleonCms::PluginsHelper`.
+
+## Plugin lifecycle hooks
+
+Every plugin can declare lifecycle callbacks in its `config.json` under the `hooks` key:
+
+| Hook | When it fires |
+|---|---|
+| `on_active` | Plugin is installed/activated for a site |
+| `on_inactive` | Plugin is deactivated for a site |
+| `on_upgrade` | `plugin_upgrade` is called and a newer version is detected |
+
+```json
+{
+  "key": "my_plugin",
+  "hooks": {
+    "on_active":   ["my_plugin_on_active"],
+    "on_inactive": ["my_plugin_on_inactive"],
+    "on_upgrade":  ["my_plugin_on_upgrade"]
+  }
+}
+```
+
+The strings in each array are method names. The CMS calls `send(method_name, plugin_model)` on the current controller/helper context.
+
+## Default plugins
+
+The `default_plugins` key in `config/system.json` lists plugin keys that are installed automatically for every new site:
+
+```json
+{
+  "default_plugins": ["front_cache", "cama_contact_form", "attack", "cama_meta_tag"]
+}
+```
+
+Add or remove keys here to change which plugins are pre-installed. Changes take effect for newly created sites only; existing sites are unaffected.
+
+## Community plugins
+
+<CardGroup cols={2}>
+  <Card title="SEO" href="https://github.com/owen2345/camaleon-cms-seo" icon="magnifying-glass">
+    Meta tags, Open Graph, Twitter Cards, and sitemap generation. Installed by default via `cama_meta_tag`.
+  </Card>
+  <Card title="Contact Forms" href="https://github.com/owen2345/cama_contact_form" icon="envelope">
+    Build and embed contact forms with configurable fields and email notifications. Installed by default.
+  </Card>
+  <Card title="E-commerce" href="https://github.com/owen2345/camaleon-ecommerce" icon="cart-shopping">
+    Full product catalog, cart, and checkout flow built on top of Camaleon CMS.
+  </Card>
+  <Card title="OAuth" href="https://github.com/owen2345/camaleon_oauth" icon="key">
+    Social login via GitHub, Google, Facebook, and other OAuth providers.
+  </Card>
+  <Card title="Language / Translation Editor" href="https://github.com/owen2345/camaleon-cms-language-editor" icon="language">
+    In-browser translation editor for all site locale strings.
+  </Card>
+  <Card title="Subscriber" href="https://github.com/owen2345/cama_subscriber" icon="bell">
+    Email subscription management and list building.
+  </Card>
+  <Card title="Post Order" href="https://github.com/owen2345/camaleon-post-order-plugin" icon="arrow-up-1-9">
+    Drag-and-drop reordering of posts in the admin panel.
+  </Card>
+  <Card title="Image Optimizer" href="https://github.com/brian-kephart/camaleon_image_optimizer" icon="image">
+    Automatic compression of uploaded images using system image tools.
+  </Card>
+  <Card title="Import / Export" href="https://github.com/owen2345/camaleon_export_import" icon="arrows-left-right">
+    Export site content to JSON and re-import it on another installation.
+  </Card>
+  <Card title="Sitemap Customizer" href="https://github.com/brian-kephart/camaleon_sitemap_customizer" icon="sitemap">
+    Fine-grained control over which pages appear in the generated sitemap.
+  </Card>
+  <Card title="Stripe Donation" href="https://github.com/owen2345/cama-stripe-donation" icon="credit-card">
+    Donation forms backed by Stripe Checkout.
+  </Card>
+  <Card title="Post Clone" href="https://github.com/owen2345/camaleon-post-clone" icon="copy">
+    Duplicate any post with a single click in the admin panel.
+  </Card>
+</CardGroup>
+
+For the full list of community plugins and paid plugins, see the [Camaleon plugin store](https://camaleon.website/store/plugins) or the [example Gemfile](https://github.com/owen2345/camaleon-cms/blob/master/docs/example_gemfile.rb).

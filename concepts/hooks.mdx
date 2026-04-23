@@ -1,0 +1,218 @@
+---
+title: "Hooks: extend Camaleon CMS behavior"
+description: "The Camaleon CMS hook system lets plugins and themes intercept any CMS lifecycle event. Learn how to register hooks, run them, and use anonymous hooks."
+---
+
+Hooks are the primary extension point in Camaleon CMS. A hook is a named event that the CMS fires at a specific moment in its lifecycle (e.g. before a page renders, after a plugin is installed, when a form is saved). Plugins and themes register callback methods against those names. When the CMS fires a hook, every enabled plugin or theme that has a matching entry in its `config.json` has its callback method called, in order.
+
+## How the hook system works
+
+Two methods drive the hook system, both defined in `CamaleonCms::HooksHelper`:
+
+### `hooks_run(hook_key, params = nil)`
+
+Fires a named hook for **all** enabled plugins and themes on the current site, then runs any registered anonymous hooks for the same key.
+
+```ruby
+# Fire a hook with no params
+hooks_run("front_before_load")
+
+# Fire a hook and pass a mutable hash — plugins can modify it
+args = { layout: "index", render: "index" }
+hooks_run("on_render_index", args)
+# args[:layout] may have been changed by a plugin
+```
+
+### `hook_run(plugin, hook_key, params = nil)`
+
+Fires a hook for **one specific plugin or theme** (identified by its config hash).
+
+```ruby
+theme = PluginRoutes.theme_info("my_theme")
+hook_run(theme, "on_active", theme_model)
+```
+
+### `hook_skip(hook_function_name)`
+
+Prevents a specific hook callback function from running during the current request. Call it before `hooks_run`.
+
+```ruby
+hook_skip("my_plugin_before_load")
+hooks_run("front_before_load")
+```
+
+<Tip>
+  Hooks within the same event are called in the order plugins appear in `PluginRoutes.enabled_apps`, which sorts by the `position` field in each plugin's `config.json`. Plugins without a `position` default to `10`. Use lower numbers to run earlier.
+</Tip>
+
+## Declaring hooks in a plugin's config.json
+
+Every plugin and theme has a `config/config.json` file. The `hooks` key maps hook event names to an array of method names that should be called when those events fire.
+
+```json
+{
+  "name": "My Plugin",
+  "key": "my_plugin",
+  "version": "1.0.0",
+  "hooks": {
+    "on_active": ["my_plugin_on_active"],
+    "on_inactive": ["my_plugin_on_inactive"],
+    "on_upgrade": ["my_plugin_on_upgrade"],
+    "front_before_load": ["my_plugin_before_load"],
+    "on_render_post": ["my_plugin_render_post"]
+  }
+}
+```
+
+The method names listed in `config.json` must be defined in one of the plugin's helper files (included via the `helpers` key in `config.json`). When the hook fires, the CMS calls `send(hook_method_name)` or `send(hook_method_name, params)` on the current controller/helper context.
+
+```ruby
+# app/apps/plugins/my_plugin/helpers/my_plugin_helper.rb
+module MyPluginHelper
+  def my_plugin_on_active(plugin_model)
+    # Run setup when the plugin is activated
+    current_site.set_option("my_plugin_enabled", true)
+  end
+
+  def my_plugin_before_load
+    # Runs before every frontend page load
+    @my_plugin_data = fetch_some_data
+  end
+
+  def my_plugin_render_post(args)
+    # args[:post]      => the decorated post
+    # args[:layout]    => current layout name (can be changed)
+    # args[:render]    => current template name (can be changed)
+    args[:render] = "my_plugin/custom_single" if args[:post].get_field("use_custom_template") == "1"
+  end
+end
+```
+
+## Anonymous hooks
+
+Anonymous hooks let you register a callback lambda from anywhere in your application without a `config.json` declaration. They are stored as class-level state in `PluginRoutes`.
+
+```ruby
+# Register an anonymous hook (e.g. in an initializer or engine)
+PluginRoutes.add_anonymous_hook(
+  "front_before_load",
+  lambda { |params| Rails.logger.info "Page loaded" },
+  "my_logging_hook"   # optional identifier, used to remove later
+)
+
+# Remove a previously registered anonymous hook by identifier
+PluginRoutes.remove_anonymous_hook("front_before_load", "my_logging_hook")
+
+# Retrieve all callbacks registered for a hook key
+PluginRoutes.get_anonymous_hooks("front_before_load")
+# => [#<Proc ...>, ...]
+```
+
+Anonymous hooks run **after** all plugin/theme hooks for the same event.
+
+## Common hook events
+
+<AccordionGroup>
+  <Accordion title="Plugin lifecycle hooks">
+    | Hook | When it fires | Params |
+    |---|---|---|
+    | `on_active` | Plugin or theme is activated for a site | plugin/theme model |
+    | `on_inactive` | Plugin or theme is deactivated | plugin/theme model |
+    | `on_upgrade` | Plugin is upgraded to a newer version | plugin model |
+    | `plugin_after_install` | Any plugin finishes installing | `{ plugin: model }` |
+    | `plugin_after_uninstall` | Any plugin finishes uninstalling | `{ plugin: model }` |
+    | `plugin_after_upgrade` | Any plugin finishes upgrading | `{ plugin: model }` |
+    | `plugin_<key>_after_install` | Specific plugin finishes installing | `{ plugin: model }` |
+    | `plugin_<key>_after_uninstall` | Specific plugin finishes uninstalling | `{ plugin: model }` |
+    | `plugin_<key>_after_upgrade` | Specific plugin finishes upgrading | `{ plugin: model }` |
+
+    ```ruby
+    # config.json
+    {
+      "hooks": {
+        "on_active": ["my_plugin_setup"],
+        "plugin_after_install": ["my_plugin_after_any_install"]
+      }
+    }
+    ```
+  </Accordion>
+  <Accordion title="Frontend render hooks">
+    | Hook | When it fires | Params |
+    |---|---|---|
+    | `front_before_load` | Before every frontend action | none |
+    | `front_after_load` | After every frontend action | none |
+    | `front_default_layout` | Resolving the default layout | `{ layout: String, controller: controller }` |
+    | `on_render_index` | Home page is about to render | `{ layout: String, render: String }` |
+    | `on_render_post` | A post is about to render | `{ post:, post_type:, layout:, render: }` |
+    | `on_render_category` | A category page is about to render | `{ category:, layout:, render: }` |
+    | `on_render_post_type` | A post type archive is about to render | `{ post_type:, layout:, render: }` |
+    | `on_render_post_tag` | A tag page is about to render | `{ post_tag:, layout:, render: }` |
+    | `on_render_search` | Search results page | `{ layout:, render:, posts: }` |
+    | `on_render_profile` | User profile page | `{ user:, layout:, render: }` |
+    | `on_ajax` | AJAX endpoint called | `{ render_file:, render_text:, layout: }` |
+    | `post_can_visit` | Checking if a visitor can view a post | `{ flag: Boolean, post: }` |
+
+    The `args` hash passed to render hooks is mutable. Plugins can change the `layout` or `render` key to redirect rendering to a different template.
+
+    ```ruby
+    def my_plugin_render_post(args)
+      # Switch layout for premium posts
+      args[:layout] = "premium" if args[:post].get_field("is_premium") == "1"
+    end
+    ```
+  </Accordion>
+  <Accordion title="Content hooks">
+    | Hook | When it fires | Params |
+    |---|---|---|
+    | `post_the_title` | Decorating a post title | `{ title: String, post: }` |
+    | `post_the_content` | Decorating post content | `{ content: String, post: }` |
+    | `post_the_excerpt` | Decorating post excerpt | `{ content: String, post: }` |
+    | `post_the_thumb` | Decorating post thumbnail | `{ image: String, post: }` |
+    | `post_get_list_templates` | Listing available templates | `{ templates: Array, post_type: }` |
+    | `post_get_list_layouts` | Listing available layouts | `{ layouts: Array, post_type: }` |
+    | `extra_custom_fields` | Extending the custom field type list | `{ fields: Hash }` |
+    | `on_notification` | System notification triggered | varies |
+  </Accordion>
+</AccordionGroup>
+
+## Full example: a plugin that injects a banner on post pages
+
+**`config/config.json`**
+
+```json
+{
+  "name": "Banner Plugin",
+  "key": "banner_plugin",
+  "version": "1.0.0",
+  "position": 5,
+  "helpers": ["BannerPluginHelper"],
+  "hooks": {
+    "on_active":      ["banner_plugin_activate"],
+    "on_inactive":    ["banner_plugin_deactivate"],
+    "on_render_post": ["banner_plugin_inject_banner"]
+  }
+}
+```
+
+**`helpers/banner_plugin_helper.rb`**
+
+```ruby
+module BannerPluginHelper
+  def banner_plugin_activate(plugin_model)
+    current_site.set_option("banner_plugin_active", true)
+    Rails.logger.info "Banner Plugin activated for #{current_site.name}"
+  end
+
+  def banner_plugin_deactivate(plugin_model)
+    current_site.set_option("banner_plugin_active", false)
+  end
+
+  def banner_plugin_inject_banner(args)
+    # Only override the layout when a banner URL is configured
+    banner_url = current_site.get_option("banner_url")
+    return unless banner_url.present?
+
+    args[:layout] = "banner_layout"
+  end
+end
+```

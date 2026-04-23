@@ -1,0 +1,66 @@
+---
+title: "Camaleon CMS version history"
+description: "Version history for Camaleon CMS — notable changes, security fixes, and upgrade notes for each release from 2.8.x to the current version."
+---
+
+Camaleon CMS follows semantic versioning. Security releases are marked with an urgent upgrade notice. The current stable version is **2.9.1** (gem), with **2.9.2** containing critical security fixes available on the main branch.
+
+<Warning>
+  Versions 2.9.1, 2.9.2, and 2.8.1 each contain critical security fixes. If you are running an older version, upgrade as soon as possible.
+</Warning>
+
+## 2.9.2 (unreleased / main branch)
+
+**Critical security release — upgrade immediately.**
+
+- **Breaking change:** `select_eval` custom field type now requires explicit permission. Non-admin users must be granted `select_eval: 1` in their role meta to create or modify `select_eval` fields.
+- Added `custom_fields` manager permission — controls who can create/edit Custom Field Groups and Custom Fields in the admin UI.
+- `CurrentRequest` (ActiveSupport::CurrentAttributes) introduced for thread-safe, request-scoped access to `current_user` and `current_site`.
+- Authorization checks added at the model layer (`CustomFieldGroup#add_field`, `CustomField` before_update callback).
+- Fixed: Tempfile rewound after scanning to prevent 0-byte uploads.
+- Run `bundle exec rake camaleon_cms:backfill_custom_fields_permission` to preserve Custom Fields access for existing roles.
+- Run `bundle exec rake camaleon_cms:backfill_select_eval_permission` to fix the Select Eval checkbox display for admin roles.
+
+See the [upgrading guide](/reference/upgrading) for detailed migration steps.
+
+## 2.9.1 (2025-01-06)
+
+**Critical security release.**
+
+- **Security fix:** Mitigated privilege escalation via mass assignment in the `updated_ajax` action of `AdminUsersController` — only permitted params are now accepted.
+- **Security fix:** Sanitized fields, comments, and metas against XSS attacks.
+- Removed `Gemfile.lock` from `.gitignore` (follows gem best practices).
+- Fixed requiring `logger` (concurrent-ruby no longer does this automatically).
+
+## 2.9.0 (2025-01-06)
+
+- Fixed false positive on malicious upload detection.
+- Added magic comment to silence Ruby 3.4 deprecation warnings.
+- **Feature:** Support for custom AWS S3 endpoints (contributed by Grayson Chen).
+
+## 2.8.3 (2024-09-16)
+
+- Removed unused `underscore.js`.
+- Upgraded IntroJS to 7.2.0.
+- Upgraded `jquery-validate` to 1.21.0 — added Arabic language messages and per-language regex files (DE, NL, PT).
+- Fixed uploads to AWS S3 folders.
+- Added path traversal validation to the `add_folder` method.
+
+## 2.8.2 (2024-08-25)
+
+- Upgraded AdminLTE to 2.3.11.
+- Fixed `TermTaxonomy` attribute sanitizing to preserve translation tags.
+- Added `bootstrap.min.css.map` for development debugging.
+
+## 2.8.1 (2024-08-21)
+
+**Critical security release.**
+
+- **Breaking change:** Replaced `sass-rails` with `dartsass-sprockets`. Remove `sass` and `sass-rails` from your app's Gemfile when upgrading.
+- **Security fix:** Mitigated arbitrary path write in uploader (GHSL-2024-182).
+- **Security fix:** Mitigated arbitrary path traversal in `download_private_file` (GHSL-2024-183).
+- Added Rails 7.2 to CI stable testing matrix.
+
+<Note>
+  For the full detailed changelog including all older releases, see the [CHANGELOG.md](https://github.com/owen2345/camaleon-cms/blob/master/CHANGELOG.md) on GitHub.
+</Note>

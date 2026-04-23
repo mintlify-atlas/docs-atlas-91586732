@@ -1,0 +1,399 @@
+---
+title: "Theme helpers reference"
+description: "Ruby helper methods available inside Camaleon CMS theme views — asset paths, layout resolution, breadcrumbs, and frontend rendering helpers."
+---
+
+Theme helpers are Ruby methods mixed into the controller context and available in every ERB view and layout that belongs to an active Camaleon CMS theme. They cover asset resolution, view path construction, site and locale access, content injection, and frontend state queries. The methods are defined across several helper modules that are automatically included for frontend requests.
+
+<Note>
+  Several helpers behave differently depending on whether the active theme is in **gem mode** (distributed as a Ruby gem with `camaleon_theme.json`) or **directory mode** (a folder under `app/apps/themes/`). The flag is read from `current_theme.settings['gem_mode']` and affects the path prefix used by `theme_asset_path`, `theme_view`, and `theme_layout`.
+</Note>
+
+## Asset helpers
+
+### `theme_asset_path(asset = nil, theme_name = nil)`
+
+Returns the asset pipeline path for a file inside the active theme's asset directory. Pass `theme_name` to resolve an asset from a different installed theme.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `asset` | String | Relative path to the asset, e.g. `"css/main"` or `"js/app.js"` |
+| `theme_name` | String \| nil | Theme key to use; defaults to the currently active theme |
+
+**Directory mode** — path includes the `assets/` prefix:
+
+```
+themes/my_theme/assets/css/main
+```
+
+**Gem mode** — path omits the `assets/` prefix:
+
+```
+themes/my_theme/css/main
+```
+
+```erb
+<%# Stylesheet from the active theme %>
+<%= stylesheet_link_tag theme_asset_path("css/main") %>
+
+<%# JavaScript from the active theme %>
+<%= javascript_include_tag theme_asset_path("js/app.js") %>
+
+<%# Image from the active theme %>
+<%= image_tag theme_asset_path("images/logo.png"), alt: "Logo" %>
+
+<%# Asset from a different installed theme %>
+<%= stylesheet_link_tag theme_asset_path("css/main", "other_theme") %>
+```
+
+`theme_asset` and `theme_gem_asset` are aliases for `theme_asset_path`.
+
+---
+
+### `theme_asset_url(asset, theme_name = nil)`
+
+Returns the **absolute URL** for a theme asset. Calls `ActionController::Base.helpers.asset_url` internally. Falls back to returning the path string if `asset_url` is unavailable.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `asset` | String | Relative asset path |
+| `theme_name` | String \| nil | Theme key; defaults to the active theme |
+
+```erb
+<%# Use in a meta tag or canonical link %>
+<link rel="icon" href="<%= theme_asset_url("images/favicon.png") %>">
+```
+
+---
+
+### `theme_asset_file_path(asset = nil, theme_name = nil)`
+
+Returns the **filesystem path** to an asset file. Useful when you need to read the file's contents in Ruby code rather than serve it to the browser.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `asset` | String | Relative asset path |
+| `theme_name` | String \| nil | Theme name (not key); defaults to the active theme |
+
+```ruby
+# Read a JSON config file bundled with the theme
+path = theme_asset_file_path("data/config.json")
+config = JSON.parse(File.read(path))
+```
+
+---
+
+## View path helpers
+
+### `theme_view(view_name)`
+
+Returns the full view path — including the theme's directory prefix — for use with `render`.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `view_name` | String | View name relative to the theme root |
+
+**Directory mode** returns `themes/my_theme/views/partials/header`, **gem mode** returns `themes/my_theme/partials/header`.
+
+```erb
+<%# Render a partial from the theme %>
+<%= render theme_view("partials/header") %>
+
+<%# Render a full template from the theme %>
+<%= render theme_view("post") %>
+```
+
+---
+
+### `theme_layout(layout_name)`
+
+Returns the full layout path — including the theme's layouts directory prefix — for use with `render layout:` or hook callbacks.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `layout_name` | String | Layout file name without extension |
+
+**Directory mode** returns `themes/my_theme/views/layouts/blog`, **gem mode** returns `themes/my_theme/layouts/blog`.
+
+```ruby
+# In a hook callback — switch layout for a specific post type
+def my_theme_render_post(args)
+  args[:layout] = theme_layout("blog") if args[:post].the_post_type.slug == "blog"
+end
+```
+
+```erb
+<%# In a view — render another template with a specific layout %>
+<%= render layout: theme_layout("minimal") do %>
+  <p>Minimal layout content</p>
+<% end %>
+```
+
+---
+
+## Site and theme helpers
+
+### `current_site`
+
+Returns the decorated `CamaleonCms::Site` model for the site currently being visited. The decorator provides the `the_*` accessor methods used throughout theme views.
+
+```erb
+<title><%= current_site.the_title %></title>
+<a href="<%= current_site.the_url %>">
+  <%= image_tag current_site.the_logo, alt: current_site.the_title %>
+</a>
+```
+
+Calling `current_site` with a site argument assigns that site as the current site (used internally by the CMS during installation):
+
+```ruby
+current_site(site_record)  # Sets and returns the decorated site
+```
+
+---
+
+### `current_theme`
+
+Returns the decorated `CamaleonCms::Theme` model for the active theme. Use it to read custom fields defined by the theme's settings form.
+
+```ruby
+current_theme.slug                        # => "my_theme"
+current_theme.settings                    # => hash from config.json + path metadata
+current_theme.get_field("accent_color")   # => "#eb2827"
+```
+
+```erb
+<% accent = current_theme.get_field("accent_color") %>
+<style>a { color: <%= accent %>; }</style>
+```
+
+---
+
+### `current_locale`
+
+Returns the ISO language code for the current request locale as a string.
+
+```ruby
+current_locale  # => "en", "es", "fr", etc.
+```
+
+```erb
+<html lang="<%= current_locale %>">
+```
+
+---
+
+### `theme_home_page`
+
+Returns the configured home page post for the current theme. If no home page is configured or the configured post does not exist, falls back to the first published page. If no pages exist at all, returns a placeholder `Post` object with title "Hello World!".
+
+```erb
+<% home = theme_home_page %>
+<h1><%= home.the_title %></h1>
+<div><%= raw home.the_content %></div>
+```
+
+---
+
+## Content injection helpers
+
+These methods are defined in `CamaleonCms::ContentHelper` and are available in all views. They allow plugins and themes to inject HTML before and after the main page body without modifying the layout directly.
+
+### `cama_content_prepend(content)`
+
+Queues an HTML string to be inserted immediately after the `<body>` tag. Call `cama_content_before_draw` in your layout to output all queued strings.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `content` | String | Raw HTML to prepend |
+
+```erb
+<%# In a partial or plugin view %>
+<% cama_content_prepend('<div class="top-banner">Site maintenance scheduled.</div>') %>
+```
+
+```erb
+<%# In the layout — output all prepended content %>
+<body>
+  <%= raw cama_content_before_draw %>
+  <%= yield %>
+</body>
+```
+
+---
+
+### `cama_content_append(content)`
+
+Queues an HTML string to be inserted immediately before the `</body>` tag. Call `cama_content_after_draw` in your layout to output all queued strings.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `content` | String | Raw HTML to append |
+
+```erb
+<%# In a partial or plugin view %>
+<% cama_content_append('<script>console.log("page loaded");</script>') %>
+```
+
+```erb
+<%# In the layout — output all appended content %>
+  <%= yield %>
+  <%= raw cama_content_after_draw %>
+</body>
+```
+
+---
+
+## Frontend state helpers
+
+These boolean helpers (from `CamaleonCms::Frontend::SiteHelper`) let you branch template logic depending on which type of page is being rendered.
+
+| Method | Returns `true` when |
+|---|---|
+| `is_home?` | Visitor is on the home page |
+| `is_page?` | Visitor is on a single post/page |
+| `is_category?` | Visitor is on a category listing |
+| `is_post_type?` | Visitor is on a post type archive |
+| `is_post_tag?` | Visitor is on a tag listing |
+| `is_search?` | Visitor is on a search results page |
+| `is_ajax?` | Request was made to the CMS AJAX endpoint |
+| `is_profile?` | Visitor is on a user profile page |
+
+```erb
+<% if is_home? %>
+  <%= render theme_view("partials/hero") %>
+<% elsif is_page? %>
+  <%= render theme_view("partials/breadcrumb") %>
+<% end %>
+```
+
+---
+
+### `the_head(seo_attrs = {}, show_seo = true)`
+
+Outputs the full `<head>` block content managed by the CMS: CSRF tags, SEO meta tags (Open Graph, Twitter Card, canonical, keywords, alternate hreflang links), a JavaScript block setting `ROOT_URL` and `LANGUAGE`, and any CSS/JS assets registered by plugins.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `seo_attrs` | Hash | Overrides for auto-generated SEO values (`title`, `description`, `keywords`, `image`) |
+| `show_seo` | Boolean | Whether to include meta tags (default `true`) |
+
+```erb
+<head>
+  <title><%= current_site.the_title %></title>
+  <%= raw the_head %>
+</head>
+```
+
+Pass custom SEO values for a specific page:
+
+```erb
+<%= raw the_head(title: "Custom page title", description: "Custom description") %>
+```
+
+---
+
+### `site_current_url`
+
+Returns the full URL of the current request.
+
+```erb
+<meta property="og:url" content="<%= site_current_url %>">
+```
+
+---
+
+### `site_current_path`
+
+Returns only the path portion of the current request URL (no scheme or host).
+
+```erb
+<% if site_current_path == "/" %>
+  <%# home page logic %>
+<% end %>
+```
+
+---
+
+## Asset library helpers
+
+These helpers (from `CamaleonCms::HtmlHelper`) manage JS/CSS libraries that the CMS and plugins register on demand.
+
+### `cama_load_libraries(*keys)`
+
+Queues one or more named asset libraries to be output by `cama_draw_custom_assets`. Built-in library keys: `colorpicker`, `datepicker`, `datetimepicker`, `tinymce`, `form_ajax`, `cropper`, `post`, `multiselect`, `validate`, `nav_menu`, `admin_intro`.
+
+```erb
+<% cama_load_libraries("datepicker", "colorpicker") %>
+```
+
+`add_asset_library` is an alias for `cama_load_libraries`.
+
+---
+
+### `cama_draw_custom_assets`
+
+Outputs all queued stylesheet `<link>` and script `<script>` tags plus any inline asset content added via `append_asset_content`. Typically called inside `the_head`, which wraps it automatically.
+
+```erb
+<head>
+  <%= raw cama_draw_custom_assets %>
+</head>
+```
+
+---
+
+### `append_asset_content(content)`
+
+Injects an inline `<script>` or `<style>` block into the output of `cama_draw_custom_assets`.
+
+```erb
+<% append_asset_content("<style>body { background: #fafafa; }</style>") %>
+```
+
+---
+
+## Full layout example
+
+The following layout combines the most commonly used helpers into a complete, production-ready template:
+
+```erb
+<!DOCTYPE html>
+<html lang="<%= current_locale %>">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= current_site.the_title %></title>
+  <%= stylesheet_link_tag theme_asset_path("css/main") %>
+  <%= javascript_include_tag theme_asset_path("js/main.js") %>
+  <%= raw the_head %>
+</head>
+<body>
+  <%= raw cama_content_before_draw %>
+
+  <header>
+    <a href="<%= current_site.the_url %>">
+      <%= image_tag current_site.the_logo, alt: current_site.the_title %>
+    </a>
+    <%= raw get_nav_menu("main_menu", "nav") %>
+    <%= raw current_site.draw_languages("language-switcher", true) %>
+  </header>
+
+  <main>
+    <% if is_home? %>
+      <section class="hero">
+        <h1><%= current_site.the_title %></h1>
+      </section>
+    <% end %>
+
+    <%= yield %>
+  </main>
+
+  <footer>
+    <p>&copy; <%= Date.current.year %> <%= current_site.the_title %></p>
+  </footer>
+
+  <%= raw cama_content_after_draw %>
+</body>
+</html>
+```

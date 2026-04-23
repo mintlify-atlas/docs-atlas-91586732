@@ -1,0 +1,148 @@
+---
+title: "Media management and file uploads"
+description: "Upload and organize media in Camaleon CMS using local storage or Amazon S3. Covers the upload_file API, image thumbnailing, and the media manager UI."
+---
+
+Camaleon CMS includes a built-in media manager for uploading, organizing, and serving files. It supports two storage backends — local disk and Amazon S3 — and handles image resizing and thumbnail generation automatically via ImageMagick.
+
+<Note>
+  ImageMagick must be installed on your server for image processing (thumbnailing, cropping, resizing) to work. The `mini_magick` gem wraps ImageMagick and is included as a dependency of Camaleon CMS.
+</Note>
+
+## The media manager
+
+Navigate to **Media** in the admin sidebar to open the media manager. From here you can:
+
+- Browse files and folders in a paginated grid (100 items per page)
+- Create and delete folders
+- Upload new files via drag-and-drop or file picker
+- Search for files by name
+- Crop images in-browser
+- Download private files (when private mode is enabled)
+
+The media manager modal is also embedded inside content editors, letting editors attach files to posts without leaving the editing screen.
+
+## Storage backends
+
+### Local storage
+
+Files are stored under `public/media/<site-id>/` by default. To use the site's human-readable slug instead of the numeric ID, set `media_slug_folder` in `config/system.json`:
+
+```json
+{
+  "media_slug_folder": true
+}
+```
+
+With this enabled, files upload to `public/media/my-site/` instead of `public/media/1/`.
+
+### Amazon S3
+
+Switch to S3 storage from **Settings → File System** in the admin panel. You need an AWS account and a pre-created S3 bucket. Set the following options in the site settings:
+
+| Setting | Description |
+|---|---|
+| File system type | `s3` or `aws` |
+| Region | AWS region, e.g. `us-east-1` |
+| Access key | IAM access key ID |
+| Secret key | IAM secret access key |
+| Bucket name | Name of the S3 bucket |
+| CloudFront URL | Optional CDN URL to serve files through CloudFront |
+
+Add the `aws-sdk-s3` gem to your application's `Gemfile` before configuring S3:
+
+```ruby
+gem 'aws-sdk-s3'
+```
+
+You can also extend S3 upload behavior using the `on_uploader` hook to inject custom `upload_file` or `read` settings:
+
+```ruby
+hooks_run('on_uploader', args) # args[:aws_settings] is customizable
+```
+
+## The `upload_file` method
+
+The `upload_file` method in `CamaleonCms::UploaderHelper` is the central API for all file uploads. You can call it from controllers, helpers, or rake tasks that have access to the helper.
+
+```ruby
+upload_file(uploaded_io, settings = {})
+```
+
+`uploaded_io` can be an `ActionDispatch::Http::UploadedFile`, a local file path string, or an `https://` URL (the file will be downloaded first).
+
+### Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `folder` | String | `""` | Subfolder within the upload directory to save the file into. Traversal paths are rejected. |
+| `generate_thumb` | Boolean | `true` | Generate a thumbnail image for image uploads. |
+| `maximum` | Integer | site setting (default 100 MB) | Maximum allowed file size in bytes. |
+| `dimension` | String | — | Resize the image to these dimensions before saving. Format: `"300x200"`, `"300x"`, `"x200"`, or `"300x200?"` (only shrink, never enlarge). |
+| `formats` | String | `"*"` | Comma-separated list of allowed extensions, or one of the generic groups: `images`, `videos`, `audios`, `documents`. |
+| `remove_source` | Boolean | `false` | Delete the source file from disk after it has been saved to the storage backend. |
+| `same_name` | Boolean | `false` | Save with the exact original filename. When `false`, appends `_1`, `_2`, etc. to avoid collisions. |
+| `versions` | String | `""` | Comma-separated list of additional image dimensions to generate, e.g. `"300x300,500x350"`. Each version is stored alongside the original. |
+| `thumb_size` | String | site setting | Override the default thumbnail dimensions, e.g. `"150x150"`. |
+| `temporal_time` | Integer | `0` | If greater than 0, the file is scheduled for deletion after this many seconds. Requires Active Job to be configured. |
+
+### Return value
+
+`upload_file` returns a hash with the uploaded file's metadata, including `url`, `key`, `file_type`, and `thumb` (thumbnail URL for images). On failure it returns `{ error: "..." }`.
+
+### Examples
+
+```ruby
+# Upload an image, restrict to image formats, save to a subfolder
+result = upload_file(params[:avatar], { formats: 'images', folder: 'avatars' })
+puts result['url']  # => "https://example.com/media/1/avatars/photo.jpg"
+
+# Upload with a 10-second expiry and size limit
+upload_file(params[:attachment], {
+  formats: 'jpg,png,gif,mp3,mp4',
+  temporal_time: 10.minutes,
+  maximum: 10.megabytes
+})
+
+# Generate two extra image versions
+upload_file(params[:hero], {
+  formats: 'images',
+  versions: '800x400,400x200'
+})
+```
+
+## Format groups
+
+Use these shorthand format strings with the `formats` option:
+
+| Group name | Included extensions |
+|---|---|
+| `images` | jpg, jpeg, png, gif, bmp, webp, svg, ico, tiff |
+| `videos` | mp4, avi, mov, wmv, flv, mkv, webm |
+| `audios` | mp3, wav, ogg, aac, flac |
+| `documents` | pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, zip |
+
+## Image processing
+
+When a file with an image format is uploaded, Camaleon CMS automatically:
+
+1. Resizes the image if the `dimension` option is set, using `cama_resize_upload`.
+2. Generates a thumbnail using `cama_resize_and_crop`, which crops the image to the configured thumb size (default `100x100`) with a `north_east` gravity.
+3. Generates any extra versions listed in the `versions` option.
+
+SVG files are converted to JPEG before any resizing or cropping operation.
+
+### Thumbnail location
+
+Thumbnails are stored in a `thumb/` subfolder within the same directory as the original file. For example, `media/1/images/photo.jpg` produces a thumbnail at `media/1/images/thumb/photo-jpg.jpg`.
+
+## Upload security
+
+Before saving any file, `upload_file` runs a content scan against a set of patterns:
+
+- **`UNSAFE_EVENT_PATTERNS`** — detects HTML event handler attributes such as `onclick=`, `onload=`, `onmouseover=`, and dozens of others.
+- **`SUSPICIOUS_PATTERNS`** — extends the above with `<script>`, `javascript:`, `<iframe>`, `<object>`, `<embed>`, `<base>`, and `data:` URIs.
+
+If the file content matches any pattern, the upload is rejected with `{ error: "Potentially malicious content found!" }`. Remote URL uploads also go through SSRF protection and reject redirects.
+
+See [Security features](/admin/security) for a full description of upload security measures.
